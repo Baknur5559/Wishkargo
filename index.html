@@ -1,0 +1,3139 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cargo CRM</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <style>
+        .modal { display: none; }
+        .modal.is-open { display: flex; }
+        .client-group.hidden { display: none; }
+        /* --- ДОБАВЬТЕ ЭТИ СТИЛИ ДЛЯ АНИМАЦИИ --- */
+    #loader {
+        display: none; /* Изначально скрыт */
+    }
+    .loader-spinner {
+        border: 8px solid #f3f3f3; /* Светло-серый фон */
+        border-top: 8px solid #4f46e5; /* Цвет индиго, как у кнопок */
+        border-radius: 50%;
+        width: 60px;
+        height: 60px;
+        animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+    /* --- КОНЕЦ СТИЛЕЙ --- */
+    </style>
+</head>
+<body class="bg-gray-100">
+    <div id="loader" class="modal fixed inset-0 bg-gray-900 bg-opacity-50 items-center justify-center z-[999]">
+        <div class="loader-spinner"></div>
+    </div>
+
+    <div id="login-screen" class="min-h-screen flex items-center justify-center">
+        <div class="max-w-md w-full bg-white p-8 rounded-lg shadow-lg">
+            <h2 class="text-2xl font-bold text-center text-gray-800 mb-6">Вход в CRM</h2>
+            <form id="login-form">
+                <div class="mb-4">
+                    <label for="password" class="block text-sm font-medium text-gray-700">Пароль</label>
+                    <input type="password" id="password" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <button type="submit" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700">Войти</button>
+            </form>
+            <p id="login-error" class="text-red-500 text-sm mt-4 text-center"></p>
+        </div>
+    </div>
+
+    <div id="shift-screen" class="hidden min-h-screen flex items-center justify-center">
+    <div class="max-w-md w-full bg-white p-8 rounded-lg shadow-lg">
+        <h2 class="text-2xl font-bold text-center text-gray-800 mb-6">Открыть новую смену</h2>
+        <form id="open-shift-form" class="space-y-4">
+            <div>
+                <label for="employee-select" class="block text-sm font-medium text-gray-700">Выберите себя</label>
+                <select id="employee-select" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-white"></select>
+            </div>
+            <div>
+                <label for="shift-exchange-rate" class="block text-sm font-medium text-gray-700">Текущий курс $</label>
+                <input type="number" step="0.1" id="shift-exchange-rate" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md">
+            </div>
+            <div>
+                <label for="shift-price-per-kg" class="block text-sm font-medium text-gray-700">Цена за кг ($)</label>
+                <input type="number" step="0.1" id="shift-price-per-kg" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md">
+            </div>
+            <div>
+                <label for="starting-cash" class="block text-sm font-medium text-gray-700">Наличные в кассе (сом)</label>
+                <input type="number" step="0.01" id="starting-cash" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md">
+            </div>
+            <button type="button" id="cancel-open-shift" class="w-full flex justify-center py-2 px-4 border rounded-md shadow-sm font-medium text-gray-700 bg-gray-200 hover:bg-gray-300">Отмена</button>
+            <button type="submit" class="w-full flex justify-center py-2 px-4 border rounded-md shadow-sm font-medium text-white bg-green-600 hover:bg-green-700">Начать смену</button>
+        </form>
+    </div>
+</div>
+
+<div id="main-app" class="hidden">
+    <div class="max-w-7xl mx-auto p-4 sm:p-6">
+        <div class="flex justify-between items-center mb-6">
+            <h1 class="text-3xl font-bold text-gray-800">Админ-панель Cargo CRM</h1>
+            <div class="flex items-center gap-4">
+                <div id="user-info" class="text-right"></div>
+                <div id="shift-controls-container"></div>
+                <button id="logout-btn" title="Выйти из системы" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-3 rounded-lg text-sm">Выйти</button> 
+            </div>
+        </div>
+
+        <div class="border-b border-gray-200">
+            <nav class="-mb-px flex space-x-8" id="tabs"></nav>
+        </div>
+
+        <div id="tab-content" class="mt-6"></div>
+        </div>
+</div>
+
+    <div id="issue-modal" class="modal fixed inset-0 bg-gray-600 bg-opacity-50 items-start justify-center z-50 overflow-y-auto pt-10"><div class="relative mx-auto p-6 border w-full max-w-4xl shadow-lg rounded-md bg-white"></div></div>
+    <div id="issued-history-modal" class="modal fixed inset-0 bg-gray-600 bg-opacity-50 items-start justify-center z-50 overflow-y-auto pt-10"><div class="relative mx-auto p-6 border w-full max-w-5xl shadow-lg rounded-md bg-white"></div></div>
+    <div id="edit-client-modal" class="modal fixed inset-0 bg-gray-600 bg-opacity-50 items-center justify-center z-50"><div class="relative mx-auto p-8 border w-full max-w-md shadow-lg rounded-md bg-white"></div></div>
+    <div id="employee-modal" class="modal fixed inset-0 bg-gray-600 bg-opacity-50 items-center justify-center z-50"><div class="relative mx-auto p-8 border w-full max-w-md shadow-lg rounded-md bg-white"></div></div>
+    <div id="permissions-modal" class="modal fixed inset-0 bg-gray-600 bg-opacity-50 items-start justify-center z-50 overflow-y-auto pt-10"><div class="relative mx-auto p-8 border w-full max-w-2xl shadow-lg rounded-md bg-white"></div></div>
+    <div id="expense-modal" class="modal fixed inset-0 bg-gray-600 bg-opacity-50 items-center justify-center z-50"><div class="relative mx-auto p-8 border w-full max-w-md shadow-lg rounded-md bg-white"></div></div>
+    <div id="edit-order-modal" class="modal fixed inset-0 bg-gray-600 bg-opacity-50 items-center justify-center z-50"><div class="relative mx-auto p-8 border w-full max-w-md shadow-lg rounded-md bg-white"></div></div>
+    <div id="buyout-modal" class="modal fixed inset-0 bg-gray-600 bg-opacity-50 items-center justify-center z-50"><div class="relative mx-auto p-8 border w-full max-w-lg shadow-lg rounded-md bg-white"></div></div>
+    <div id="shift-report-modal" class="modal fixed inset-0 bg-gray-600 bg-opacity-50 items-center justify-center z-50"><div class="relative mx-auto p-8 border w-full max-w-2xl shadow-lg rounded-md bg-white"></div></div>
+    
+    <div id="whatsapp-modal" class="modal fixed inset-0 bg-gray-600 bg-opacity-50 items-center justify-center z-50">
+       <div class="relative mx-auto p-8 border w-full max-w-lg shadow-lg rounded-md bg-white">
+        </div>
+    </div>
+
+    <div id="client-tools-modal" class="modal fixed inset-0 bg-gray-600 bg-opacity-50 items-center justify-center z-50">
+    <div class="relative mx-auto p-8 border w-full max-w-lg shadow-lg rounded-md bg-white">
+        <div class="flex justify-between items-start">
+            <h3 class="text-2xl font-bold mb-4">Дополнительные действия</h3>
+            <button onclick="document.getElementById('client-tools-modal').classList.remove('is-open')" class="text-2xl font-bold">&times;</button>
+        </div>
+
+        <div class="bg-gray-50 p-4 rounded-lg">
+            <h4 class="text-lg font-semibold mb-2">Импорт клиентов из Excel</h4>
+            <p class="text-sm text-gray-600 mb-4">Колонки: <strong>full_name</strong>, <strong>phone</strong>. Необязательно: <strong>client_code</strong>.</p>
+            <input type="file" id="client-excel-input" accept=".xlsx, .xls" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/>
+            <button id="import-clients-btn" class="mt-4 w-full bg-blue-600 text-white font-bold py-2 rounded-lg">Импортировать</button>
+            <div id="client-import-results" class="mt-4 text-sm"></div>
+        </div>
+
+        <div class="bg-red-50 p-4 rounded-lg mt-6 border border-red-300">
+            <h4 class="text-lg font-semibold mb-2 text-red-700">Опасная зона</h4>
+            <button id="wipe-clients-btn" class="w-full bg-red-600 text-white font-bold py-2 rounded-lg">Очистить базу</button>
+            <p class="text-xs text-gray-500 mt-2">Внимание! Это действие удалит ВСЕХ клиентов, ВСЕ заказы, ВСЕ смены и ВСЕ расходы.</p>
+        </div>
+    </div>
+</div>
+
+<script>
+
+// =================================================================
+// ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ И НАСТРОЙКИ
+// =================================================================
+const API_URL = 'http://127.0.0.1:8000';
+let sysConfig = {};
+let clients = [];
+let orders = [];
+let orderStatuses = [];
+let currentUser = {};
+let activeShift = null;
+
+const issueModal = document.getElementById('issue-modal');
+
+
+// =================================================================
+// ЛОГИКА ВХОДА В СИСТЕМУ
+// =================================================================
+const loginForm = document.getElementById('login-form');
+loginForm.addEventListener('submit', async (e) => {
+    showLoader();
+    e.preventDefault();
+    const password = document.getElementById('password').value;
+    const loginError = document.getElementById('login-error');
+    loginError.textContent = '';
+
+    try {
+        const response = await fetch(`${API_URL}/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password })
+        });
+
+        if (!response.ok) {
+            const errData = await response.json();
+            throw new Error(errData.detail || 'Ошибка входа');
+        }
+
+        const data = await response.json();
+        currentUser = data.employee;
+
+        // --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: ПРОВЕРКА РОЛИ ---
+        if (currentUser.role === 'Владелец') {
+            // Владелец входит сразу, без смен
+            document.getElementById('login-screen').classList.add('hidden');
+            document.getElementById('main-app').classList.remove('hidden');
+            await initializeMainApp();
+        } else {
+            // Для администратора проверяем активную смену
+            await checkActiveShift();
+        }
+
+    } catch (error) {
+        loginError.textContent = error.message;
+    } finally {
+        hideLoader(); // <--- ИНДИКАТОР УЖЕ БЫЛ, ВСЕ ХОРОШО
+    }
+});
+
+async function checkActiveShift() {
+    showLoader(); // <--- ДОБАВЛЕНО
+    try {
+        const response = await fetch(`${API_URL}/shifts/active`);
+        if (response.status === 404) {
+            // Активной смены нет, показываем форму открытия
+            await showOpenShiftScreen();
+            return;
+        }
+        if (!response.ok) throw new Error('Ошибка проверки смены');
+
+        const data = await response.json();
+        const shift = data.shift;
+
+        // Смена есть, спрашиваем пользователя
+        const confirmation = confirm(
+            `Найдена открытая смена сотрудника ${shift.employee.full_name} (начата ${new Date(shift.start_time).toLocaleString()}).\n\nВойти в нее?`
+        );
+
+        if (confirmation) {
+            document.getElementById('login-screen').classList.add('hidden');
+            document.getElementById('main-app').classList.remove('hidden');
+            await initializeMainApp();
+        } else {
+            // Пользователь отказался, ничего не делаем, остаемся на экране входа
+            return;
+        }
+
+    } catch (error) {
+        alert(`Критическая ошибка: ${error.message}`);
+    } finally {
+        hideLoader(); // <--- ДОБАВЛЕНО
+    }
+}
+
+async function showOpenShiftScreen() {
+    showLoader(); // <--- ДОБАВЛЕНО
+    try {
+        // Заполняем поля из конфига
+        document.getElementById('shift-exchange-rate').value = sysConfig.exchange_rate_usd;
+        document.getElementById('shift-price-per-kg').value = sysConfig.price_per_kg_usd;
+
+        // Загружаем список сотрудников
+        const empResponse = await fetch(`${API_URL}/employees`);
+        const empData = await empResponse.json();
+        const empSelect = document.getElementById('employee-select');
+        empSelect.innerHTML = empData.employees
+          .filter(e => e.is_active)
+          .map(e => `<option value="${e.id}">${e.full_name}</option>`).join('');
+        if (currentUser.role === 'Владелец') {
+            empSelect.value = currentUser.id;
+        }
+        // Показываем экран
+        document.getElementById('login-screen').classList.add('hidden');
+        document.getElementById('shift-screen').classList.remove('hidden');
+
+        // Вешаем обработчик на форму
+        document.getElementById('open-shift-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            showLoader(); // <--- ДОБАВЛЕНО для отправки формы
+            try {
+                const payload = {
+                    employee_id: parseInt(document.getElementById('employee-select').value),
+                    starting_cash: parseFloat(document.getElementById('starting-cash').value),
+                    exchange_rate_usd: parseFloat(document.getElementById('shift-exchange-rate').value),
+                    price_per_kg_usd: parseFloat(document.getElementById('shift-price-per-kg').value)
+                };
+
+                const response = await fetch(`${API_URL}/shifts/open`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                if (!response.ok) throw new Error(await handleApiError(response));
+
+                // Все хорошо, входим в приложение
+                document.getElementById('shift-screen').classList.add('hidden');
+                document.getElementById('main-app').classList.remove('hidden');
+                await initializeMainApp();
+
+            } catch(err) {
+                alert(`Ошибка открытия смены: ${err.message}`);
+            } finally {
+                hideLoader(); // <--- ДОБАВЛЕНО для отправки формы
+            }
+        });
+
+    } catch (error) {
+        alert(`Ошибка подготовки экрана смены: ${error.message}`);
+    } finally {
+        hideLoader(); // <--- ДОБАВЛЕНО
+    }
+
+    document.getElementById('cancel-open-shift').addEventListener('click', async () => {
+        // Прячем экран открытия смены и показываем главный экран
+        document.getElementById('shift-screen').classList.add('hidden');
+        document.getElementById('main-app').classList.remove('hidden');
+
+        // Пересобираем главный экран (так как смена не была открыта)
+        await initializeMainApp();
+    });
+}
+
+
+async function handleCloseShift() {
+    const closingCash = prompt("Введите итоговую сумму наличных в кассе для закрытия смены:");
+    if (closingCash === null || closingCash === '') {
+        alert("Закрытие смены отменено.");
+        return;
+    }
+
+    showLoader(); // <--- ДОБАВЛЕНО
+    try {
+        const response = await fetch(`${API_URL}/shifts/close`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ closing_cash: parseFloat(closingCash) })
+        });
+        if (!response.ok) throw new Error(await handleApiError(response));
+
+        alert("Смена успешно закрыта!");
+        location.reload(); // Перезагружаем страницу, чтобы выйти из системы
+
+    } catch (err) {
+        alert(`Ошибка закрытия смены: ${err.message}`);
+    } finally {
+        hideLoader(); // <--- ДОБАВЛЕНО
+    }
+}
+
+async function updateShiftButton() {
+    const controlsDiv = document.getElementById('shift-controls-container');
+    controlsDiv.innerHTML = ''; // Очищаем контейнер
+
+    showLoader(); // <--- ДОБАВЛЕНО
+    try {
+        const response = await fetch(`${API_URL}/shifts/active`);
+
+        if (!response.ok) {
+            throw new Error('No active shift');
+        }
+        const data = await response.json();
+        activeShift = data.shift;
+
+        // Если мы здесь, значит смена ОТКРЫТА
+        controlsDiv.innerHTML = `<button id="shift-action-btn" class="bg-red-500 text-white font-bold py-2 px-4 rounded-lg">Закрыть смену</button>`;
+        document.getElementById('shift-action-btn').addEventListener('click', handleCloseShift);
+
+    } catch (error) {
+        activeShift = null;
+        // Если получили ошибку (404), значит смена ЗАКРЫТА
+        if (currentUser.role === 'Владелец') {
+            controlsDiv.innerHTML = `<button id="shift-action-btn" class="bg-green-500 text-white font-bold py-2 px-4 rounded-lg">Открыть смену</button>`;
+            // Теперь кнопка просто вызывает экран открытия смены
+            document.getElementById('shift-action-btn').addEventListener('click', showOpenShiftScreen);
+        }
+    } finally {
+        hideLoader(); // <--- ДОБАВЛЕНО
+    }
+}
+
+async function initializeMainApp() {
+    showLoader();
+    try {
+        document.getElementById('user-info').innerHTML = `
+            <p class="font-semibold">${currentUser.full_name}</p>
+            <p class="text-sm text-gray-600">${currentUser.role}</p>
+        `;
+
+        document.getElementById('logout-btn').addEventListener('click', () => {
+            if (confirm('Вы уверены, что хотите выйти?')) {
+                location.reload();
+            }
+        });
+
+        // --- ГЛАВНОЕ ИЗМЕНЕНИЕ: СНАЧАЛА ГРУЗИМ ДАННЫЕ ---
+        const [configRes, statusesRes] = await Promise.all([
+            fetch(`${API_URL}/config`),
+            fetch(`${API_URL}/order_statuses`)
+        ]);
+
+        sysConfig = await configRes.json();
+        const statusesData = await statusesRes.json();
+        orderStatuses = statusesData.statuses;
+
+        // --- ТОЛЬКО ПОСЛЕ УСПЕШНОЙ ЗАГРУЗКИ РИСУЕМ ИНТЕРФЕЙС ---
+        const tabsContainer = document.getElementById('tabs');
+        let tabsHtml = '';
+        let contentHtml = '';
+
+        if (currentUser.permissions.includes('issue_orders')) { tabsHtml += '<button data-tab="issue" class="tab-btn">Выдача</button>'; contentHtml += '<div id="tab-issue" class="tab-pane"></div>'; }
+        if (currentUser.permissions.includes('manage_orders')) { tabsHtml += '<button data-tab="orders" class="tab-btn">Все заказы</button>'; contentHtml += '<div id="tab-orders" class="tab-pane hidden"></div>'; }
+        if (currentUser.permissions.includes('manage_clients')) { tabsHtml += '<button data-tab="clients" class="tab-btn">Клиенты</button>'; contentHtml += '<div id="tab-clients" class="tab-pane hidden"></div>'; }
+        if (currentUser.permissions.includes('manage_employees')) { tabsHtml += '<button data-tab="employees" class="tab-btn">Персонал</button>'; contentHtml += '<div id="tab-employees" class="tab-pane hidden"></div>'; }
+        if (currentUser.permissions.includes('manage_roles')) { tabsHtml += '<button data-tab="roles" class="tab-btn">Должности и доступы</button>'; contentHtml += '<div id="tab-roles" class="tab-pane hidden"></div>'; }
+        if (currentUser.permissions.includes('add_expense')) { tabsHtml += '<button data-tab="expenses" class="tab-btn">Расходы</button>'; contentHtml += '<div id="tab-expenses" class="tab-pane hidden"></div>'; }
+        if (currentUser.permissions.includes('view_shift_report')) {
+            tabsHtml += '<button data-tab="report" class="tab-btn">Отчет по смене</button>';
+            contentHtml += '<div id="tab-report" class="tab-pane hidden"></div>';
+        }
+        if (currentUser.role === 'Владелец') { tabsHtml += '<button data-tab="summary-report" class="tab-btn">Сводный отчет</button>'; contentHtml += '<div id="tab-summary-report" class="tab-pane hidden"></div>'; }
+        if (currentUser.role === 'Владелец') { tabsHtml += '<button data-tab="buyout-report" class="tab-btn">Отчет по выкупу</button>'; contentHtml += '<div id="tab-buyout-report" class="tab-pane hidden"></div>'; }
+
+        tabsContainer.innerHTML = tabsHtml.replaceAll('class="tab-btn"', 'class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700"');
+        document.getElementById('tab-content').innerHTML = contentHtml;
+
+        // Отрисовка контента
+        if (document.getElementById('tab-clients')) renderClientsTab();
+        if (document.getElementById('tab-orders')) renderOrdersTab();
+        if (document.getElementById('tab-issue')) renderIssueTab();
+        if (document.getElementById('tab-employees')) renderEmployeesTab();
+        if (document.getElementById('tab-roles')) renderRolesTab();
+        if (document.getElementById('tab-expenses')) renderExpensesTab();
+        if (document.getElementById('tab-report')) renderShiftReportTab();
+        if (document.getElementById('tab-summary-report')) renderSummaryReportTab();
+        if (document.getElementById('tab-buyout-report')) renderBuyoutReportTab();
+
+        // Загрузка остальных данных
+        await fetchAllOrdersData();
+        if (document.getElementById('tab-clients')) await fetchAndRenderClients();
+        if (document.getElementById('tab-issue')) await fetchAndRenderIssueList();
+
+        const firstTab = tabsContainer.querySelector('.tab-btn');
+        if(firstTab) firstTab.click();
+
+        await updateShiftButton();
+
+    } catch (e) {
+        console.error("Не удалось загрузить базовую конфигурацию:", e);
+        alert("Критическая ошибка: не удалось загрузить конфигурацию сервера!");
+        // тут не прячем лоадер, т.к. приложение сломано
+        return;
+    } finally {
+        hideLoader(); // <--- ИНДИКАТОР УЖЕ БЫЛ, ВСЕ ХОРОШО
+    }
+}
+
+
+// --- НОВЫЕ ФУНКЦИИ ДЛЯ УПРАВЛЕНИЯ ЗАГРУЗЧИКОМ ---
+const showLoader = () => {
+    const loader = document.getElementById('loader');
+    if (loader) loader.style.display = 'flex';
+}
+
+const hideLoader = () => {
+    const loader = document.getElementById('loader');
+    if (loader) loader.style.display = 'none';
+}
+
+// =================================================================
+// УТИЛИТЫ И ОБЩИЕ ОБРАБОТЧИКИ
+// =================================================================
+async function handleApiError(response) {
+    try {
+        const errorJson = await response.json();
+        return errorJson.detail || JSON.stringify(errorJson);
+    } catch (e) {
+        return `Статус: ${response.status} - ${response.statusText}`;
+    }
+}
+
+const readExcelFile = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        try {
+            const data = new Uint8Array(event.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+            const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+            resolve(json);
+        } catch (err) {
+            reject(err);
+        }
+    };
+    reader.onerror = error => reject(error);
+    reader.readAsArrayBuffer(file);
+});
+
+document.getElementById('tabs').addEventListener('click', e => {
+    if (!e.target.classList.contains('tab-btn')) return;
+    const tabName = e.target.dataset.tab;
+    document.getElementById('tabs').querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('border-indigo-500', 'text-indigo-600');
+        btn.classList.add('border-transparent', 'text-gray-500');
+    });
+    e.target.classList.add('border-indigo-500', 'text-indigo-600');
+    document.getElementById('tab-content').querySelectorAll('.tab-pane').forEach(pane => pane.classList.add('hidden'));
+    const activePane = document.getElementById(`tab-${tabName}`);
+    if(activePane) {
+        activePane.classList.remove('hidden');
+    }
+});
+
+// =================================================================
+// МОДУЛЬ: УПРАВЛЕНИЕ ПЕРСОНАЛОМ
+// =================================================================
+function renderEmployeesTab() {
+    const pane = document.getElementById('tab-employees');
+    pane.innerHTML = `
+        <div class="bg-white p-6 rounded-lg shadow-md">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-2xl font-bold">Управление персоналом</h2>
+                <button id="add-employee-btn" class="bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg">Добавить сотрудника</button>
+            </div>
+            <div id="employees-list" class="space-y-3"></div>
+        </div>
+    `;
+    document.getElementById('add-employee-btn').addEventListener('click', () => openEmployeeModal());
+    document.getElementById('employees-list').addEventListener('click', handleEmployeeActions);
+    fetchAndRenderEmployees();
+}
+
+async function fetchAndRenderEmployees() {
+    const listDiv = document.getElementById('employees-list');
+    listDiv.innerHTML = '<p>Загрузка...</p>';
+    showLoader(); // <--- ДОБАВЛЕНО
+    try {
+        const response = await fetch(`${API_URL}/employees`);
+        const data = await response.json();
+        listDiv.innerHTML = data.employees.map(emp => `
+            <div class="p-3 ${emp.is_active ? 'bg-gray-50' : 'bg-red-50'} rounded-md flex justify-between items-center">
+                <div>
+                    <p class="font-bold">${emp.full_name} <span class="text-sm font-normal text-gray-500">(${emp.role.name})</span></p>
+                    <p class="text-xs ${emp.is_active ? 'text-green-600' : 'text-red-600'}">${emp.is_active ? 'Активен' : 'Уволен'}</p>
+                </div>
+                <div class="flex gap-2">
+                    <button data-employee-id="${emp.id}" class="edit-employee-btn text-sm bg-gray-200 hover:bg-gray-300 px-3 py-1 rounded">Редактировать</button>
+                    <button data-employee-id="${emp.id}" data-is-active="${emp.is_active}" class="toggle-status-btn text-sm ${emp.is_active ? 'bg-red-200 text-red-800' : 'bg-green-200 text-green-800'} px-3 py-1 rounded">
+                        ${emp.is_active ? 'Уволить' : 'Восстановить'}
+                    </button>
+                </div>
+            </div>
+        `).join('');
+    } catch (e) {
+        listDiv.innerHTML = `<p class="text-red-500">Ошибка: ${e.message}</p>`;
+    } finally {
+        hideLoader(); // <--- ДОБАВЛЕНО
+    }
+}
+
+async function openEmployeeModal(employee = null) {
+    showLoader(); // <--- ДОБАВЛЕНО
+    try {
+        const employeeModal = document.getElementById('employee-modal');
+        const modal = document.getElementById('employee-modal');
+        const isEdit = employee !== null;
+        const rolesResponse = await fetch(`${API_URL}/roles`);
+        const rolesData = await rolesResponse.json();
+        const rolesOptions = rolesData.roles.map(r => `<option value="${r.id}" ${isEdit && employee.role.id === r.id ? 'selected' : ''}>${r.name}</option>`).join('');
+
+        modal.querySelector('.relative').innerHTML = `
+            <div class="flex justify-between items-start">
+                <h3 class="text-2xl font-bold mb-4">${isEdit ? 'Редактировать сотрудника' : 'Добавить сотрудника'}</h3>
+                <button onclick="document.getElementById('employee-modal').classList.remove('is-open')" class="text-2xl font-bold">&times;</button>
+            </div>
+            <form id="employee-form" data-employee-id="${isEdit ? employee.id : ''}" class="space-y-4">
+                <div>
+                    <label class="block text-sm">ФИО</label>
+                    <input type="text" name="full_name" class="mt-1 w-full p-2 border rounded" value="${isEdit ? employee.full_name : ''}" required>
+                </div>
+                <div>
+                    <label class="block text-sm">Пароль</label>
+                    <input type="text" name="password" class="mt-1 w-full p-2 border rounded" placeholder="${isEdit ? 'Оставьте пустым, чтобы не менять' : ''}">
+                </div>
+                <div>
+                    <label class="block text-sm">Должность</label>
+                    <select name="role_id" class="mt-1 w-full p-2 border rounded bg-white">${rolesOptions}</select>
+                </div>
+                <div class="flex gap-4 mt-6">
+                    <button type="button" onclick="document.getElementById('employee-modal').classList.remove('is-open')" class="w-full bg-gray-200 py-2 rounded">Отмена</button>
+                    <button type="submit" class="w-full bg-green-600 text-white py-2 rounded">Сохранить</button>
+                </div>
+            </form>
+        `;
+        modal.classList.add('is-open');
+        document.getElementById('employee-form').addEventListener('submit', handleSaveEmployee);
+    } catch (error) {
+        alert(`Ошибка открытия модального окна: ${error.message}`);
+    } finally {
+        hideLoader(); // <--- ДОБАВЛЕНО
+    }
+}
+
+async function handleSaveEmployee(e) {
+    e.preventDefault();
+    const form = e.target;
+    const employeeId = form.dataset.employeeId;
+    const isEdit = !!employeeId;
+    const payload = {
+        full_name: form.elements.full_name.value,
+        role_id: parseInt(form.elements.role_id.value),
+    };
+    if (form.elements.password.value) {
+        payload.password = form.elements.password.value;
+    }
+
+    showLoader(); // <--- ДОБАВЛЕНО
+    try {
+        const response = await fetch(`${API_URL}/employees${isEdit ? `/${employeeId}` : ''}`, {
+            method: isEdit ? 'PATCH' : 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        if (!response.ok) throw new Error(await handleApiError(response));
+        document.getElementById('employee-modal').classList.remove('is-open');
+        await fetchAndRenderEmployees();
+    } catch (err) {
+        alert(`Ошибка: ${err.message}`);
+    } finally {
+        hideLoader(); // <--- ДОБАВЛЕНО
+    }
+}
+
+async function handleEmployeeActions(e) {
+    const btn = e.target;
+    const employeeId = btn.dataset.employeeId;
+
+    if (btn.classList.contains('edit-employee-btn')) {
+        showLoader(); // <--- ДОБАВЛЕНО
+        try {
+            const employees = (await (await fetch(`${API_URL}/employees`)).json()).employees;
+            const employee = employees.find(emp => emp.id == employeeId);
+            openEmployeeModal(employee); // Откроет модалку и свой лоадер
+        } catch(err) {
+             alert(`Ошибка: ${err.message}`);
+        } finally {
+            hideLoader(); // <--- ДОБАВЛЕНО
+        }
+    }
+
+    if (btn.classList.contains('toggle-status-btn')) {
+        const isActive = btn.dataset.isActive === 'true';
+        const action = isActive ? 'Уволить' : 'Восстановить';
+        if (confirm(`Вы уверены, что хотите ${action.toLowerCase()} этого сотрудника?`)) {
+            showLoader(); // <--- ДОБАВЛЕНО
+            try {
+                const response = await fetch(`${API_URL}/employees/${employeeId}`, {
+                    method: 'PATCH',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ is_active: !isActive })
+                });
+                if (!response.ok) throw new Error(await handleApiError(response));
+                await fetchAndRenderEmployees();
+            } catch (err) {
+                alert(`Ошибка: ${err.message}`);
+            } finally {
+                hideLoader(); // <--- ДОБАВЛЕНО
+            }
+        }
+    }
+}
+
+// =================================================================
+// МОДУЛЬ: УПРАВЛЕНИЕ ДОЛЖНОСТЯМИ И ДОСТУПАМИ
+// =================================================================
+
+function renderRolesTab() {
+    const pane = document.getElementById('tab-roles');
+    pane.innerHTML = `
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div class="md:col-span-1">
+                <div class="bg-white p-6 rounded-lg shadow-md">
+                    <h2 class="text-xl font-semibold mb-4">Добавить должность</h2>
+                    <form id="add-role-form" class="space-y-3">
+                        <input type="text" id="new-role-name" placeholder="Название должности" class="w-full p-2 border rounded" required>
+                        <button type="submit" class="w-full bg-indigo-600 text-white font-bold py-2 rounded-lg">Создать</button>
+                    </form>
+                </div>
+            </div>
+            <div class="md:col-span-2">
+                 <div class="bg-white p-6 rounded-lg shadow-md">
+                    <h2 class="text-2xl font-bold mb-4">Список должностей</h2>
+                    <div id="roles-list" class="space-y-3"></div>
+                </div>
+            </div>
+        </div>
+    `;
+    document.getElementById('add-role-form').addEventListener('submit', handleAddRole);
+    document.getElementById('roles-list').addEventListener('click', handleRolesActions);
+    fetchAndRenderRoles();
+}
+
+async function fetchAndRenderRoles() {
+    const listDiv = document.getElementById('roles-list');
+    listDiv.innerHTML = '<p>Загрузка...</p>';
+    showLoader(); // <--- ДОБАВЛЕНО
+    try {
+        const response = await fetch(`${API_URL}/roles`);
+        const data = await response.json();
+        listDiv.innerHTML = data.roles.map(role => `
+            <div class="p-3 bg-gray-50 rounded-md flex justify-between items-center">
+                <p class="font-bold">${role.name}</p>
+                <div class="flex gap-2">
+                    <button data-role-id="${role.id}" data-role-name="${role.name}" class="permissions-btn text-sm bg-blue-200 text-blue-800 px-3 py-1 rounded">Настроить доступы</button>
+                    ${role.name !== 'Владелец' ? `<button data-role-id="${role.id}" class="delete-role-btn text-sm bg-red-200 text-red-800 px-3 py-1 rounded">&times;</button>` : ''}
+                </div>
+            </div>
+        `).join('');
+    } catch (e) {
+        listDiv.innerHTML = `<p class="text-red-500">Ошибка: ${e.message}</p>`;
+    } finally {
+        hideLoader(); // <--- ДОБАВЛЕНО
+    }
+}
+
+async function handleAddRole(e) {
+    e.preventDefault();
+    const roleName = document.getElementById('new-role-name').value;
+    showLoader(); // <--- ДОБАВЛЕНО
+    try {
+        const response = await fetch(`${API_URL}/roles`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ name: roleName })
+        });
+        if (!response.ok) throw new Error(await handleApiError(response));
+        e.target.reset();
+        await fetchAndRenderRoles();
+    } catch(err) {
+        alert(`Ошибка: ${err.message}`);
+    } finally {
+        hideLoader(); // <--- ДОБАВЛЕНО
+    }
+}
+
+async function handleRolesActions(e) {
+    const btn = e.target;
+    const roleId = btn.dataset.roleId;
+    if (btn.classList.contains('permissions-btn')) {
+        const roleName = btn.dataset.roleName;
+        openPermissionsModal(roleId, roleName);
+    }
+    if (btn.classList.contains('delete-role-btn')) {
+        if (confirm('Вы уверены, что хотите удалить эту должность?')) {
+            showLoader(); // <--- ДОБАВЛЕНО
+            try {
+                const response = await fetch(`${API_URL}/roles/${roleId}`, { method: 'DELETE' });
+                if (!response.ok) throw new Error(await handleApiError(response));
+                await fetchAndRenderRoles();
+            } catch(err) {
+                alert(`Ошибка: ${err.message}`);
+            } finally {
+                hideLoader(); // <--- ДОБАВЛЕНО
+            }
+        }
+    }
+}
+
+async function openPermissionsModal(roleId, roleName) {
+    const permissionsModal = document.getElementById('permissions-modal');
+    const modal = document.getElementById('permissions-modal').querySelector('.relative');
+    modal.innerHTML = '<p>Загрузка доступов...</p>';
+    document.getElementById('permissions-modal').classList.add('is-open');
+    showLoader(); // <--- ДОБАВЛЕНО
+
+    try {
+        const [permsRes, rolePermsRes] = await Promise.all([
+            fetch(`${API_URL}/permissions`),
+            fetch(`${API_URL}/roles/${roleId}/permissions`)
+        ]);
+        const allPermissions = (await permsRes.json()).permissions;
+        const rolePermissionIds = new Set((await rolePermsRes.json()).permission_ids);
+
+        const permissionsHtml = allPermissions.map(p => `
+            <div class="flex items-center">
+                <input id="perm-${p.id}" type="checkbox" value="${p.id}" class="h-4 w-4 permission-checkbox" ${rolePermissionIds.has(p.id) ? 'checked' : ''}>
+                <label for="perm-${p.id}" class="ml-3 block text-sm text-gray-900">${p.description}</label>
+            </div>
+        `).join('');
+
+        modal.innerHTML = `
+            <div class="flex justify-between items-start">
+                <h3 class="text-2xl font-bold mb-4">Настройка доступов для: <span class="text-indigo-600">${roleName}</span></h3>
+                <button onclick="document.getElementById('permissions-modal').classList.remove('is-open')" class="text-2xl font-bold">&times;</button>
+            </div>
+            <form id="permissions-form" data-role-id="${roleId}">
+                <div class="space-y-4 max-h-[60vh] overflow-y-auto pr-4">${permissionsHtml}</div>
+                <div class="flex gap-4 mt-6">
+                    <button type="button" onclick="document.getElementById('permissions-modal').classList.remove('is-open')" class="w-full bg-gray-200 py-2 rounded">Отмена</button>
+                    <button type="submit" class="w-full bg-green-600 text-white py-2 rounded">Сохранить</button>
+                </div>
+            </form>
+        `;
+        document.getElementById('permissions-form').addEventListener('submit', handleSavePermissions);
+    } catch (err) {
+        modal.innerHTML = `<p class="text-red-500">Ошибка загрузки: ${err.message}</p>`;
+    } finally {
+        hideLoader(); // <--- ДОБАВЛЕНО
+    }
+}
+
+async function handleSavePermissions(e) {
+    e.preventDefault();
+    const form = e.target;
+    const roleId = form.dataset.roleId;
+    const selectedIds = Array.from(form.querySelectorAll('.permission-checkbox:checked')).map(cb => parseInt(cb.value));
+
+    showLoader(); // <--- ДОБАВЛЕНО
+    try {
+        const response = await fetch(`${API_URL}/roles/${roleId}/permissions`, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ permission_ids: selectedIds })
+        });
+        if (!response.ok) throw new Error(await handleApiError(response));
+        alert('Доступы успешно обновлены!');
+        document.getElementById('permissions-modal').classList.remove('is-open');
+    } catch(err) {
+        alert(`Ошибка: ${err.message}`);
+    } finally {
+        hideLoader(); // <--- ДОБАВЛЕНО
+    }
+}
+
+// =================================================================
+// МОДУЛЬ: РАСХОДЫ
+// =================================================================
+
+function renderExpensesTab() {
+    const today = new Date().toISOString().split('T')[0];
+    const pane = document.getElementById('tab-expenses');
+    pane.innerHTML = `
+        <div class="bg-white p-6 rounded-lg shadow-md">
+            <div class="flex flex-wrap justify-between items-center gap-4 mb-4">
+                <h2 class="text-2xl font-bold">Учет расходов</h2>
+                <button id="add-expense-btn" class="bg-green-600 text-white font-bold py-2 px-4 rounded-lg">Добавить расход</button>
+            </div>
+            <div class="flex flex-wrap gap-4 items-end p-4 bg-gray-50 rounded-lg mb-4">
+                <div>
+                    <label for="expense-start-date" class="block text-sm font-medium">С</label>
+                    <input type="date" id="expense-start-date" value="${today}" class="mt-1 p-2 border rounded-md">
+                </div>
+                <div>
+                    <label for="expense-end-date" class="block text-sm font-medium">По</label>
+                    <input type="date" id="expense-end-date" value="${today}" class="mt-1 p-2 border rounded-md">
+                </div>
+                <button id="filter-expenses-btn" class="bg-blue-600 text-white py-2 px-4 rounded-md">Показать</button>
+            </div>
+            <div class="mb-4">
+                <input type="search" id="expenses-search-input" placeholder="🔍 Поиск по типу, сумме, примечанию..." class="w-full p-2 border rounded-lg">
+            </div>
+            <div id="expenses-list" class="space-y-3"></div>
+        </div>
+    `;
+    document.getElementById('add-expense-btn').addEventListener('click', () => openExpenseModal());
+    document.getElementById('filter-expenses-btn').addEventListener('click', fetchAndRenderExpenses);
+    document.getElementById('expenses-list').addEventListener('click', handleExpenseActions);
+    document.getElementById('expenses-search-input').addEventListener('input', handleExpensesSearch);
+    fetchAndRenderExpenses(); // Загружаем расходы за сегодня при открытии
+}
+
+async function fetchAndRenderExpenses() {
+    const listDiv = document.getElementById('expenses-list');
+    listDiv.innerHTML = '<p>Загрузка...</p>';
+    const startDate = document.getElementById('expense-start-date').value;
+    const endDate = document.getElementById('expense-end-date').value;
+
+    showLoader(); // <--- ДОБАВЛЕНО
+    try {
+        const response = await fetch(`${API_URL}/expenses?start_date=${startDate}&end_date=${endDate}`);
+        if (!response.ok) throw new Error(await handleApiError(response));
+        const data = await response.json();
+
+        if (data.expenses.length === 0) {
+            listDiv.innerHTML = '<p class="text-gray-500">Расходов за выбранный период нет.</p>';
+            return;
+        }
+
+        listDiv.innerHTML = data.expenses.map(exp => `
+            <div class="p-3 bg-gray-50 rounded-md flex justify-between items-center">
+                <div>
+                    <p class="font-bold">${exp.expense_type.name} - <span class="text-red-600">${exp.amount.toFixed(2)} сом</span></p>
+                    <p class="text-sm text-gray-600">${exp.notes || 'Без примечания'}</p>
+                    <p class="text-xs text-gray-400">
+                        ${new Date(exp.created_at).toLocaleString()} | ${exp.shift.employee.full_name}
+                    </p>
+                </div>
+                <button data-expense-id="${exp.id}" class="edit-expense-btn text-sm bg-gray-200 hover:bg-gray-300 px-3 py-1 rounded">
+                    Изменить
+                </button>
+            </div>
+        `).join('');
+    } catch (e) {
+        listDiv.innerHTML = `<p class="text-red-500">Ошибка: ${e.message}</p>`;
+    } finally {
+        hideLoader(); // <--- ДОБАВЛЕНО
+    }
+}
+
+async function openExpenseModal(expense = null) {
+    if (!activeShift) {
+        alert('Смена не открыта! Сначала откройте смену, чтобы добавить расход.');
+        return;
+    }
+    const expenseModal = document.getElementById('expense-modal');
+    const modal = document.getElementById('expense-modal').querySelector('.relative');
+    const isEdit = expense !== null;
+
+    showLoader(); // <--- ДОБАВЛЕНО
+    try {
+        const typesResponse = await fetch(`${API_URL}/expense_types`);
+        const typesData = await typesResponse.json();
+        const typesOptions = typesData.expense_types
+            .filter(t => currentUser.role !== 'Владелец' ? (t.name !== 'Зарплата' && t.name !== 'Аванс') : true)
+            .map(t => `<option value="${t.id}" ${isEdit && expense.expense_type_id === t.id ? 'selected' : ''}>${t.name}</option>`).join('');
+
+        modal.innerHTML = `
+            <div class="flex justify-between items-start">
+                <h3 class="text-2xl font-bold mb-4">${isEdit ? 'Редактировать расход' : 'Добавить расход'}</h3>
+                <button onclick="document.getElementById('expense-modal').classList.remove('is-open')" class="text-2xl font-bold">&times;</button>
+            </div>
+            <form id="expense-form" data-expense-id="${isEdit ? expense.id : ''}" class="space-y-4">
+                <div>
+                    <label class="block text-sm">Тип расхода</label>
+                    <select name="expense_type_id" class="mt-1 w-full p-2 border rounded bg-white" required>${typesOptions}</select>
+                </div>
+                <div>
+                    <label class="block text-sm">Сумма (сом)</label>
+                    <input type="number" step="0.01" name="amount" class="mt-1 w-full p-2 border rounded" value="${isEdit ? expense.amount : ''}" required>
+                </div>
+                <div>
+                    <label class="block text-sm">Примечание</label>
+                    <textarea name="notes" class="mt-1 w-full p-2 border rounded">${isEdit ? expense.notes || '' : ''}</textarea>
+                </div>
+                <div class="flex gap-4 mt-6">
+                    <button type="button" onclick="document.getElementById('expense-modal').classList.remove('is-open')" class="w-full bg-gray-200 py-2 rounded">Отмена</button>
+                    <button type="submit" class="w-full bg-green-600 text-white py-2 rounded">Сохранить</button>
+                </div>
+            </form>
+        `;
+        document.getElementById('expense-modal').classList.add('is-open');
+        document.getElementById('expense-form').addEventListener('submit', handleSaveExpense);
+    } catch(err) {
+        alert(`Ошибка: ${err.message}`);
+    } finally {
+        hideLoader(); // <--- ДОБАВЛЕНО
+    }
+}
+
+async function handleSaveExpense(e) {
+    e.preventDefault();
+    const form = e.target;
+    const expenseId = form.dataset.expenseId;
+    const isEdit = !!expenseId;
+    const payload = {
+        expense_type_id: parseInt(form.elements.expense_type_id.value),
+        amount: parseFloat(form.elements.amount.value),
+        notes: form.elements.notes.value
+    };
+
+    showLoader(); // <--- ДОБАВЛЕНО
+    try {
+        const response = await fetch(`${API_URL}/expenses${isEdit ? `/${expenseId}` : ''}`, {
+            method: isEdit ? 'PATCH' : 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        if (!response.ok) throw new Error(await handleApiError(response));
+        document.getElementById('expense-modal').classList.remove('is-open');
+        await fetchAndRenderExpenses();
+    } catch (err) {
+        alert(`Ошибка: ${err.message}`);
+    } finally {
+        hideLoader(); // <--- ДОБАВЛЕНО
+    }
+}
+
+async function handleExpenseActions(e) {
+    if (e.target.classList.contains('edit-expense-btn')) {
+        const expenseId = e.target.dataset.expenseId;
+        showLoader(); // <--- ДОБАВЛЕНО
+        try {
+            const startDate = document.getElementById('expense-start-date').value;
+            const endDate = document.getElementById('expense-end-date').value;
+            const response = await fetch(`${API_URL}/expenses?start_date=${startDate}&end_date=${endDate}`);
+            const data = (await response.json()).expenses;
+            const expense = data.find(exp => exp.id == expenseId);
+
+            const expenseDate = new Date(expense.created_at).toISOString().split('T')[0];
+            const today = new Date().toISOString().split('T')[0];
+
+            if (currentUser.role === 'Владелец' || expenseDate === today) {
+                openExpenseModal(expense);
+            } else {
+                alert('У вас нет прав на редактирование расходов за прошлые даты.');
+            }
+        } catch (err) {
+            alert(`Ошибка: ${err.message}`);
+        } finally {
+            hideLoader(); // <--- ДОБАВЛЕНО
+        }
+    }
+}
+
+// =================================================================
+// МОДУЛЬ: КЛИЕНТЫ
+// =================================================================
+
+function renderClientsTab() {
+    const pane = document.getElementById('tab-clients');
+    if (!pane) return;
+
+    pane.innerHTML = `
+        <div class="bg-white p-6 rounded-lg shadow-md">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-2xl font-bold">Список клиентов</h2>
+                <div class="flex items-center gap-4">
+                    <button id="client-tools-btn" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-lg">🛠️ Инструменты</button>
+                    <button id="add-client-btn" class="bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg">➕ Добавить клиента</button>
+                </div>
+            </div>
+            <div class="mb-4">
+                <input type="search" id="clients-search-input" placeholder="🔍 Поиск по имени, телефону, коду..." class="w-full p-2 border rounded-lg">
+            </div>
+            <div id="clients-list" class="space-y-3"></div>
+        </div>
+    `;
+
+    document.getElementById('add-client-btn').addEventListener('click', () => openClientModal());
+    document.getElementById('clients-search-input').addEventListener('input', handleClientsSearch);
+    document.getElementById('clients-list').addEventListener('click', handleClientActions);
+
+    document.getElementById('client-tools-btn').addEventListener('click', () => {
+        document.getElementById('client-tools-modal').classList.add('is-open');
+    });
+
+    document.getElementById('import-clients-btn').addEventListener('click', handleClientExcelImport);
+    document.getElementById('wipe-clients-btn').addEventListener('click', handleWipeClients);
+
+    fetchAndRenderClients();
+}
+
+function openClientModal(client = null) {
+    const isEdit = client !== null;
+    const editClientModal = document.getElementById('edit-client-modal');
+    const modalContent = editClientModal.querySelector('.relative');
+
+    modalContent.innerHTML = `
+        <div class="flex justify-between items-start">
+            <h3 class="text-2xl font-bold mb-4">${isEdit ? 'Редактировать клиента' : 'Добавить нового клиента'}</h3>
+            <button onclick="document.getElementById('edit-client-modal').classList.remove('is-open')" class="text-2xl font-bold">&times;</button>
+        </div>
+        <form id="client-form-inner" class="space-y-4">
+            <div>
+                <label class="block text-sm">ФИО</label>
+                <input type="text" id="client-full_name" value="${isEdit ? client.full_name : ''}" class="mt-1 w-full p-2 border rounded" required>
+            </div>
+            <div>
+                <label class="block text-sm">Телефон</label>
+                <input type="text" id="client-phone" value="${isEdit ? client.phone : ''}" placeholder="996..." class="mt-1 w-full p-2 border rounded" required>
+            </div>
+            <div class="grid grid-cols-3 gap-2">
+                <div>
+                    <label class="block text-sm">Префикс</label>
+                    <input type="text" id="client-prefix" value="${isEdit ? (client.client_code_prefix || 'WK') : 'WK'}" class="mt-1 w-full p-2 border rounded">
+                </div>
+                <div class="col-span-2">
+                    <label class="block text-sm">Код клиента</label>
+                    <input type="number" id="client-code" value="${isEdit ? (client.client_code_num || '') : ''}" class="mt-1 w-full p-2 border rounded" ${isEdit ? '' : 'disabled title="Присваивается автоматически" placeholder="Автоматически"'}>
+                </div>
+            </div>
+            <div class="flex gap-4 mt-6">
+                <button type="button" onclick="document.getElementById('edit-client-modal').classList.remove('is-open')" class="w-full bg-gray-200 py-2 rounded">Отмена</button>
+                <button type="submit" class="w-full bg-green-600 text-white py-2 rounded">Сохранить</button>
+            </div>
+        </form>
+    `;
+    editClientModal.classList.add('is-open');
+
+    document.getElementById('client-form-inner').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const payload = {
+            full_name: document.getElementById('client-full_name').value,
+            phone: document.getElementById('client-phone').value,
+            client_code_prefix: document.getElementById('client-prefix').value,
+            client_code_num: isEdit ? (parseInt(document.getElementById('client-code').value) || null) : null
+        };
+
+        const url = isEdit ? `${API_URL}/clients/${client.id}` : `${API_URL}/register_client`;
+        const method = isEdit ? 'PATCH' : 'POST';
+
+        showLoader(); // <--- ДОБАВЛЕНО
+        try {
+            const r = await fetch(url, {
+                method: method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(isEdit ? payload : { full_name: payload.full_name, phone: payload.phone })
+            });
+            if (!r.ok) throw new Error(await handleApiError(r));
+
+            alert(isEdit ? 'Клиент обновлен!' : 'Клиент успешно создан!');
+            editClientModal.classList.remove('is-open');
+            await fetchAndRenderClients(); // Обновляем список
+        } catch (err) {
+            alert(`Ошибка: ${err.message}`);
+        } finally {
+            hideLoader(); // <--- ДОБАВЛЕНО
+        }
+    });
+}
+
+async function fetchAndRenderClients() {
+    showLoader();
+    const listDiv = document.getElementById('clients-list');
+    if (listDiv) {
+        listDiv.innerHTML = '<p>Загрузка...</p>';
+    }
+    try {
+        const r = await fetch(`${API_URL}/clients`);
+        if (!r.ok) throw new Error(await handleApiError(r));
+        const j = await r.json();
+        clients = j.clients;
+        if (listDiv) {
+            listDiv.innerHTML = '';
+            if (!clients || clients.length === 0) {
+                listDiv.innerHTML = '<p>Клиентов нет.</p>';
+            } else {
+                clients.forEach(c => {
+                    const d = document.createElement('div');
+                    d.className = 'p-3 bg-gray-50 rounded-md flex justify-between items-center';
+                    d.innerHTML = `
+                        <div class="flex-grow">
+                            <p class="font-bold">${c.full_name} (${c.client_code_prefix}${c.client_code_num})</p>
+                            <p class="text-sm text-gray-600">${c.phone}</p>
+                        </div>
+                        <div class="flex-shrink-0 flex gap-2">
+                            <button data-client-id="${c.id}" class="edit-client-btn text-sm bg-gray-200 hover:bg-gray-300 px-3 py-1 rounded">Редакт.</button>
+                            <button data-client-id="${c.id}" class="delete-client-btn text-sm bg-red-200 hover:bg-red-300 text-red-800 px-3 py-1 rounded">Удалить</button>
+                        </div>
+                    `;
+                    listDiv.appendChild(d);
+                });
+            }
+        }
+    } catch (e) {
+        if (listDiv) {
+            listDiv.innerHTML = `<p class="text-red-500">Ошибка: ${e.message}</p>`;
+        }
+        console.error("Ошибка при загрузке клиентов:", e);
+    } finally {
+        hideLoader();
+    }
+}
+
+async function handleAddClient(e) {
+    e.preventDefault();
+    const d = {
+        full_name: document.getElementById('full_name').value,
+        phone: document.getElementById('phone').value
+    };
+    showLoader(); // <--- ДОБАВЛЕНО
+    try {
+        const r = await fetch(`${API_URL}/register_client`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(d)
+        });
+        if (!r.ok) throw new Error(await handleApiError(r));
+        const j = await r.json();
+        alert(`Успех! ${j.message}`);
+        e.target.reset();
+        await fetchAndRenderClients();
+    } catch (err) {
+        alert(`Ошибка: ${err.message}`);
+        console.error("Ошибка при добавлении клиента:", err);
+    } finally {
+        hideLoader(); // <--- ДОБАВЛЕНО
+    }
+}
+
+function handleClientActions(e) {
+    const t = e.target;
+    const editButton = t.closest('.edit-client-btn');
+    const deleteButton = t.closest('.delete-client-btn');
+
+    if (editButton) {
+        const cId = editButton.dataset.clientId;
+        const editClientModal = document.getElementById('edit-client-modal');
+        const modalContent = editClientModal.querySelector('.relative');
+        const c = clients.find(cl => cl.id == cId);
+        if (!c) return;
+
+        const telegramStatus = c.telegram_chat_id ?
+            `<p class="text-sm text-green-600 font-semibold text-center">✅ Telegram привязан</p>` :
+            `<p class="text-sm text-gray-500 text-center">Telegram не привязан (клиент должен сам привязать его в боте)</p>`;
+
+        modalContent.innerHTML = `
+            <div class="flex justify-between items-start">
+                <h3 class="text-2xl font-bold mb-4">Редактировать клиента</h3>
+                <button onclick="document.getElementById('edit-client-modal').classList.remove('is-open')" class="text-2xl font-bold">&times;</button>
+            </div>
+            <form id="edit-client-form-inner">
+                <input type="hidden" id="edit-client-id" value="${c.id}">
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm">ФИО</label>
+                        <input type="text" id="edit-full_name" value="${c.full_name}" class="mt-1 w-full p-2 border rounded">
+                    </div>
+                    <div>
+                        <label class="block text-sm">Телефон</label>
+                        <input type="text" id="edit-phone" value="${c.phone}" class="mt-1 w-full p-2 border rounded">
+                    </div>
+                    <div class="grid grid-cols-3 gap-2">
+                        <div>
+                            <label class="block text-sm">Префикс</label>
+                            <input type="text" id="edit-prefix" value="${c.client_code_prefix || ''}" class="mt-1 w-full p-2 border rounded">
+                        </div>
+                        <div class="col-span-2">
+                            <label class="block text-sm">Код</label>
+                            <input type="number" id="edit-code" value="${c.client_code_num || ''}" class="mt-1 w-full p-2 border rounded">
+                        </div>
+                    </div>
+                    <div class="border-t pt-4 mt-4 space-y-2">
+                        <button type="button" id="generate-lk-link-btn" class="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 rounded">📋 Ссылка для Личного Кабинета</button>
+                        ${telegramStatus}
+                    </div>
+                </div>
+                <div class="flex gap-4 mt-6">
+                    <button type="button" onclick="document.getElementById('edit-client-modal').classList.remove('is-open')" class="w-full bg-gray-200 py-2 rounded">Отмена</button>
+                    <button type="submit" class="w-full bg-green-600 text-white py-2 rounded">Сохранить</button>
+                </div>
+            </form>
+        `;
+        editClientModal.classList.add('is-open');
+
+        document.getElementById('generate-lk-link-btn').addEventListener('click', async () => {
+            showLoader(); // <--- ДОБАВЛЕНО
+            try {
+                const response = await fetch(`${API_URL}/clients/${c.id}/generate_lk_link`, { method: 'POST' });
+                if (!response.ok) throw new Error('Ошибка генерации ссылки ЛК.');
+                const data = await response.json();
+                prompt("Ссылка для личного кабинета:", data.link);
+            } catch (err) {
+                alert(`Ошибка: ${err.message}`);
+            } finally {
+                hideLoader(); // <--- ДОБАВЛЕНО
+            }
+        });
+
+        document.getElementById('edit-client-form-inner').addEventListener('submit', async (ev) => {
+            ev.preventDefault();
+            const clientId = document.getElementById('edit-client-id').value;
+            const data = {
+                full_name: document.getElementById('edit-full_name').value,
+                phone: document.getElementById('edit-phone').value,
+                client_code_prefix: document.getElementById('edit-prefix').value,
+                client_code_num: parseInt(document.getElementById('edit-code').value) || null
+            };
+            showLoader(); // <--- ДОБАВЛЕНО
+            try {
+                const r = await fetch(`${API_URL}/clients/${clientId}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                if (!r.ok) throw new Error(await handleApiError(r));
+                alert('Клиент обновлен!');
+                editClientModal.classList.remove('is-open');
+                await fetchAndRenderClients();
+            } catch (err) {
+                alert(`Ошибка: ${err.message}`);
+                console.error("Ошибка при обновлении клиента:", err);
+            } finally {
+                hideLoader(); // <--- ДОБАВЛЕНО
+            }
+        });
+    }
+
+    if (deleteButton) {
+        const cId = deleteButton.dataset.clientId;
+        const c = clients.find(cl => cl.id == cId);
+        if (!c) return;
+        if (confirm(`Удалить "${c.full_name}"?`)) {
+            deleteClient(cId);
+        }
+    }
+}
+
+async function deleteClient(cId) {
+    showLoader(); // <--- ДОБАВЛЕНО
+    try {
+        const r = await fetch(`${API_URL}/clients/${cId}`, { method: 'DELETE' });
+        if (!r.ok) throw new Error(await handleApiError(r));
+        alert('Клиент удален!');
+        await fetchAndRenderClients();
+    } catch (e) {
+        alert(`Ошибка: ${e.message}`);
+        console.error("Ошибка при удалении клиента:", e);
+    } finally {
+        hideLoader(); // <--- ДОБАВЛЕНО
+    }
+}
+
+async function handleWipeClients() {
+    const p = prompt("ПАРОЛЬ ДЛЯ УДАЛЕНИЯ ВСЕХ ДАННЫХ:");
+    if (p === null) return;
+    showLoader(); // <--- ДОБАВЛЕНО
+    try {
+        const r = await fetch(`${API_URL}/clients/wipe_all`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password: p })
+        });
+        if (!r.ok) throw new Error(await handleApiError(r));
+        const j = await r.json();
+        alert(j.message);
+        await fetchAndRenderClients();
+        await fetchAllOrdersData();
+    } catch (e) {
+        alert(`Ошибка: ${e.message}`);
+        console.error("Ошибка при очистке базы:", e);
+    } finally {
+        hideLoader(); // <--- ДОБАВЛЕНО
+    }
+}
+
+async function handleClientExcelImport(e) {
+    const i = document.getElementById('client-excel-input');
+    const rDiv = document.getElementById('client-import-results');
+    if (i.files.length === 0) {
+        alert('Выберите Excel-файл.');
+        return;
+    }
+    showLoader(); // <--- ДОБАВЛЕНО
+    try {
+        const json = await readExcelFile(i.files[0]);
+        if (json.length === 0 || !json[0].full_name || !json[0].phone) {
+            alert('Ошибка! Файл должен содержать колонки "full_name" и "phone".');
+            return;
+        }
+        rDiv.innerHTML = `<p class="text-blue-600">Идет импорт ${json.length} клиентов...</p>`;
+        const dataToSend = json.map(row => ({...row, phone: String(row.phone), client_code: row.client_code ? String(row.client_code) : undefined }));
+        const res = await fetch(`${API_URL}/clients/bulk_import`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(dataToSend)
+        });
+        if (!res.ok) throw new Error(await handleApiError(res));
+        const j = await res.json();
+        let msg = `<p class="text-green-600"><strong>Успешно: ${j.created_clients}</strong></p>`;
+        if (j.errors && j.errors.length > 0) {
+            msg += `<p class="text-red-600 mt-2"><strong>Ошибки (${j.errors.length}):</strong></p><ul class="list-disc list-inside">${j.errors.map(er => `<li>${er}</li>`).join('')}</ul>`;
+        }
+        rDiv.innerHTML = msg;
+        await fetchAndRenderClients();
+    } catch (error) {
+        rDiv.innerHTML = `<p class="text-red-500">Критическая ошибка: ${error.message}</p>`;
+        console.error("Ошибка импорта клиентов:", error);
+    } finally {
+        hideLoader(); // <--- ДОБАВЛЕНО
+    }
+}
+
+// =================================================================
+// МОДУЛЬ: ЗАКАЗЫ
+// =================================================================
+
+const renderOrdersTab = () => {
+    const pane = document.getElementById('tab-orders');
+    if (!pane) return;
+
+    pane.innerHTML = `
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="lg:col-span-1 space-y-6">
+                <div class="bg-white p-6 rounded-lg shadow-md h-fit">
+                    <h2 class="text-xl font-semibold mb-4">Добавить заказ</h2>
+                    <form id="add-order-form" class="space-y-4">
+                        <div class="relative">
+                            <label class="block text-sm">Клиент (поиск)</label>
+                            <input type="text" id="client-search-input" autocomplete="off" placeholder="Начните вводить..." class="mt-1 w-full p-2 border rounded">
+                            <input type="hidden" id="selected-client-id">
+                            <div id="client-search-results" class="absolute top-full left-0 right-0 bg-white border mt-1 rounded-md shadow-lg z-20"></div>
+                        </div>
+                        <div>
+                            <label class="block text-sm">Трек-код</label>
+                            <input type="text" id="track_code" class="mt-1 w-full p-2 border rounded">
+                        </div>
+                        <div>
+                            <label class="block text-sm">Тип заказа</label>
+                            <select id="purchase_type" required class="mt-1 w-full p-2 border rounded bg-white">
+                                <option value="Доставка">Доставка</option>
+                                <option value="Выкуп">Выкуп</option>
+                            </select>
+                        </div>
+                        <div id="buyout-fields" class="hidden space-y-4 border-t pt-4">
+                            <div>
+                                <label class="block text-sm">Стоимость товара (CNY)</label>
+                                <input type="number" step="any" id="buyout_item_cost_cny" class="mt-1 w-full p-2 border rounded">
+                            </div>
+                            <div>
+                                <label class="block text-sm">Курс для клиента (сом/юань)</label>
+                                <input type="number" step="any" id="buyout_rate_for_client" class="mt-1 w-full p-2 border rounded">
+                            </div>
+                            <div>
+                                <label class="block text-sm">Комиссия за выкуп (%)</label>
+                                <input type="number" step="1" id="buyout_commission_percent" value="10" class="mt-1 w-full p-2 border rounded">
+                            </div>
+                            <div class="p-3 bg-indigo-50 rounded-md text-center">
+                                <p class="text-sm text-gray-600">Итоговая цена для клиента:</p>
+                                <p id="buyout-final-price-display" class="text-xl font-bold text-indigo-700">0.00 сом</p>
+                            </div>
+                        </div>
+                        <button type="submit" class="w-full bg-green-600 text-white font-bold py-2 rounded">Создать</button>
+                    </form>
+                </div>
+
+                <div class="bg-white p-6 rounded-lg shadow-md h-fit">
+                    <h2 class="text-xl font-semibold mb-4">Импорт заказов</h2>
+                    <p class="text-sm text-gray-600 mb-2">Колонки: <strong>track_code</strong> и (<strong>client_code</strong> или <strong>phone</strong>). Необязательно: <strong>comment</strong>.</p>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-sm font-medium">Дата партии (необязательно)</label>
+                            <input type="date" id="import-party-date" class="mt-1 w-full p-2 border rounded">
+                        </div>
+                    </div>
+                    <input type="file" id="order-excel-input" accept=".xlsx, .xls" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 mt-4"/>
+                    <button id="import-orders-btn" class="mt-4 w-full bg-blue-600 text-white font-bold py-2 rounded-lg">Импорт</button>
+                    <div id="order-import-results" class="mt-4 text-sm"></div>
+                </div>
+            </div>
+
+            <div class="lg:col-span-2 bg-white p-6 rounded-lg shadow-md">
+                <div id="action-header" class="sticky top-0 bg-white py-2 mb-4 border-b -mx-6 px-6 flex justify-between items-center z-10">
+                    <div class="flex items-center gap-2">
+                        <div class="p-2 bg-gray-100 rounded-md shadow-sm">
+                            <button id="toggle-select-mode-btn" class="font-bold text-indigo-600 hover:text-indigo-800">✅ Выбрать</button>
+                        </div>
+                        <div class="p-2 bg-gray-100 rounded-md shadow-sm relative">
+                            <button id="toggle-party-filter-btn" class="font-bold text-indigo-600 hover:text-indigo-800">🗳️ Партии</button>
+                            <div id="party-filter-container" class="hidden absolute top-full mt-2 bg-white border rounded-lg shadow-lg p-4 w-60">
+                                <p class="font-semibold mb-2">Выберите партии:</p>
+                                <div id="party-list" class="space-y-1 max-h-60 overflow-y-auto"></div>
+                                <button id="apply-party-filter" class="w-full mt-3 bg-indigo-600 text-white text-sm py-1 rounded">Применить</button>
+                            </div>
+                        </div>
+                        <div class="p-2 bg-gray-100 rounded-md shadow-sm relative">
+                            <button id="toggle-status-filter-btn" class="font-bold text-indigo-600 hover:text-indigo-800">🟢 Статусы</button>
+                            <div id="status-filter-container" class="hidden absolute top-full mt-2 bg-white border rounded-lg shadow-lg p-4 w-60">
+                                <p class="font-semibold mb-2">Выберите статусы:</p>
+                                <div id="status-list" class="space-y-1 max-h-60 overflow-y-auto"></div>
+                                <button id="apply-status-filter" class="w-full mt-3 bg-indigo-600 text-white text-sm py-1 rounded">Применить</button>
+                            </div>
+                        </div>
+                        <div class="p-2 bg-gray-100 rounded-md shadow-sm">
+                           <button id="export-orders-btn" class="font-bold text-green-600 hover:text-green-800">📥 Экспорт</button>
+                        </div>
+                    </div>
+                    <button id="refresh-orders" title="Обновить" class="text-2xl">&circlearrowright;</button>
+                </div>
+                <div class="mb-4">
+                    <input type="search" id="orders-search-input" placeholder="🔍 Поиск по клиенту, телефону, трек-коду..." class="w-full p-2 border rounded-lg">
+                </div>
+                <div id="bulk-action-bar" class="hidden p-3 bg-indigo-50 rounded-lg mb-4 space-y-3">
+                    <div class="flex items-center gap-4 flex-wrap">
+                        <span id="selected-count" class="font-bold"></span>
+                        <div class="flex items-center gap-2 border-l pl-3">
+                            <select id="bulk-status-select" class="rounded-md border-gray-300 p-2 text-sm"></select>
+                            <button id="bulk-update-status-btn" class="bg-indigo-600 text-white font-bold py-2 px-3 rounded-lg text-sm">Применить статус</button>
+                        </div>
+                        <div class="flex items-center gap-2 border-l pl-3">
+                            <input type="date" id="bulk-party-date-input" class="p-2 border rounded text-sm">
+                            <button id="bulk-update-date-btn" class="bg-orange-500 text-white font-bold py-2 px-3 rounded-lg text-sm">Применить дату</button>
+                        </div>
+                        <button id="bulk-buyout-btn" class="hidden bg-purple-600 text-white font-bold py-2 px-3 rounded-lg text-sm">Выкупить отмеченные</button>
+                    </div>
+                    <div class="border-t pt-2">
+                        <button id="bulk-delete-btn" class="bg-red-600 text-white font-bold py-2 px-3 rounded-lg text-sm">Удалить выбранное</button>
+                    </div>
+                </div>
+                <div id="select-all-container" class="hidden flex items-center p-2 border-b">
+                    <input type="checkbox" id="select-all-orders" class="h-4 w-4 rounded">
+                    <label for="select-all-orders" class="ml-3 block text-sm font-bold text-gray-700">Выбрать все</label>
+                </div>
+                <div id="orders-list" class="space-y-4"></div>
+            </div>
+        </div>
+    `;
+
+    document.getElementById('add-order-form').addEventListener('submit', handleAddOrder);
+    document.getElementById('refresh-orders').addEventListener('click', fetchAndRenderOrders);
+
+    document.getElementById('orders-list').addEventListener('click', handleOrderActions);
+    document.getElementById('orders-list').addEventListener('change', handleOrderCheckboxChange);
+    document.getElementById('import-orders-btn').addEventListener('click', handleOrderExcelImport);
+    document.getElementById('client-search-input').addEventListener('input', (e) => {
+        const resultsDiv = document.getElementById('client-search-results');
+        searchClients(e.target.value, (client) => {
+            e.target.value = `${client.full_name} (${client.client_code_prefix}${client.client_code_num})`;
+            document.getElementById('selected-client-id').value = client.id;
+            resultsDiv.innerHTML = '';
+        }, resultsDiv);
+    });
+    document.getElementById('toggle-select-mode-btn').addEventListener('click', toggleSelectMode);
+
+    // Фильтры
+    document.getElementById('toggle-party-filter-btn').addEventListener('click', togglePartyFilter);
+    document.getElementById('toggle-status-filter-btn').addEventListener('click', toggleStatusFilter);
+    document.getElementById('apply-party-filter').addEventListener('click', applyAllFilters);
+    document.getElementById('apply-status-filter').addEventListener('click', applyAllFilters);
+
+    // Массовые действия
+    document.getElementById('select-all-orders').addEventListener('change', handleSelectAllOrders);
+    document.getElementById('bulk-update-status-btn').addEventListener('click', handleBulkUpdateStatus);
+    document.getElementById('bulk-update-date-btn').addEventListener('click', handleBulkUpdatePartyDate);
+    document.getElementById('bulk-delete-btn').addEventListener('click', handleBulkDelete);
+    document.getElementById('bulk-buyout-btn').addEventListener('click', openBuyoutModal);
+    document.getElementById('export-orders-btn').addEventListener('click', handleExportOrders);
+    document.getElementById('orders-search-input').addEventListener('input', handleOrdersSearch);
+
+    // Калькулятор выкупа
+    const buyoutInputs = ['buyout_item_cost_cny', 'buyout_rate_for_client', 'buyout_commission_percent'];
+    buyoutInputs.forEach(id => {
+        const input = document.getElementById(id);
+        if (input) {
+            input.addEventListener('input', () => {
+                const cost = parseFloat(document.getElementById('buyout_item_cost_cny').value) || 0;
+                const rate = parseFloat(document.getElementById('buyout_rate_for_client').value) || 0;
+                const commission = parseFloat(document.getElementById('buyout_commission_percent').value) || 0;
+                const commissionAmount = cost * (commission / 100);
+                const finalPrice = (cost + commissionAmount) * rate;
+                document.getElementById('buyout-final-price-display').textContent = `${finalPrice.toFixed(2)} сом`;
+            });
+        }
+    });
+
+    // Динамические поля для выкупа
+    document.getElementById('purchase_type').addEventListener('change', (e) => {
+        const buyoutFields = document.getElementById('buyout-fields');
+        if (e.target.value === 'Выкуп') {
+            buyoutFields.classList.remove('hidden');
+        } else {
+            buyoutFields.classList.add('hidden');
+        }
+    });
+};
+
+async function fetchAndRenderOrders() {
+    const listDiv = document.getElementById('orders-list');
+    listDiv.innerHTML = '<p>Загрузка...</p>';
+    showLoader(); // <--- ДОБАВЛЕНО
+
+    const selectedParties = Array.from(document.querySelectorAll('#party-list input:checked')).map(cb => cb.value);
+    const selectedStatuses = Array.from(document.querySelectorAll('#status-list input:checked')).map(cb => cb.value);
+
+    const params = new URLSearchParams();
+    selectedParties.forEach(date => params.append('party_dates', date));
+
+    const isSearching = document.getElementById('orders-search-input')?.value;
+    if (selectedStatuses.length > 0) {
+        selectedStatuses.forEach(status => params.append('statuses', status));
+    } else if (!isSearching) {
+        orderStatuses.filter(s => s !== 'Выдан').forEach(status => params.append('statuses', status));
+    }
+
+    const url = `${API_URL}/orders?${params.toString()}`;
+
+    try {
+        const r = await fetch(url);
+        if (!r.ok) throw new Error(await handleApiError(r));
+        const j = await r.json();
+        orders = j.orders;
+        const groupedOrders = orders.reduce((acc, order) => {
+            const clientId = order.client.id;
+            if (!acc[clientId]) {
+                acc[clientId] = {
+                    client: order.client,
+                    orders: [],
+                    party_date: order.party_date
+                };
+            }
+            acc[clientId].orders.push(order);
+            return acc;
+        }, {});
+
+        listDiv.innerHTML = '';
+        if (Object.keys(groupedOrders).length === 0) {
+            listDiv.innerHTML = '<p>Заказы не найдены.</p>';
+            return;
+        }
+        for (const clientId in groupedOrders) {
+            const group = groupedOrders[clientId];
+            const groupDiv = document.createElement('div');
+            groupDiv.className = 'p-4 bg-gray-50 rounded-lg shadow-sm';
+            let trackListHtml = group.orders.map(o => `
+                <li class="flex items-center justify-between py-1">
+                    <div class="flex items-center gap-3">
+                        <input type="checkbox" data-order-id="${o.id}" class="order-checkbox h-4 w-4 hidden">
+                        <div>
+                            <span>${o.track_code}</span> <span class="text-xs text-gray-500">(${o.status})</span>
+                            ${o.comment ? `<p class="text-xs text-blue-600 font-medium">${o.comment}</p>` : ''}
+                        </div>
+                    </div>
+                    <button data-order-id="${o.id}" class="edit-order-btn text-lg p-1" title="Редактировать заказ">✏️</button>
+                </li>
+            `).join('');
+            groupDiv.innerHTML = `
+                <div class="flex justify-between items-start border-b pb-2 mb-2">
+                    <div>
+                        <h3 class="font-bold text-lg">${group.client.full_name}</h3>
+                        <p class="text-sm text-gray-600">${group.client.client_code_prefix}${group.client.client_code_num || ''} - ${group.client.phone}</p>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <p class="text-sm font-semibold">Партия: ${group.party_date || 'Не указана'}</p>
+                        <button class="whatsapp-btn text-2xl" data-client-id="${group.client.id}" title="Написать клиенту в WhatsApp">💬</button>
+                    </div>
+                </div>
+                <ul class="list-disc list-inside space-y-1">${trackListHtml}</ul>
+            `;
+            listDiv.appendChild(groupDiv);
+        }
+        document.getElementById('select-all-container').classList.add('hidden');
+        document.getElementById('bulk-action-bar').classList.add('hidden');
+    } catch (e) {
+        listDiv.innerHTML = `<p class="text-red-500">Ошибка: ${e.message}</p>`;
+        console.error("Ошибка загрузки заказов:", e);
+    } finally {
+        hideLoader(); // <--- ДОБАВЛЕНО
+    }
+}
+
+async function handleAddOrder(e) {
+    e.preventDefault();
+    const cId = document.getElementById('selected-client-id').value;
+    if (!cId) {
+        alert('Выберите клиента из поиска!');
+        return;
+    }
+
+    const payload = {
+        client_id: parseInt(cId),
+        track_code: document.getElementById('track_code').value,
+        purchase_type: document.getElementById('purchase_type').value
+    };
+
+    if (payload.purchase_type === 'Выкуп') {
+        payload.buyout_item_cost_cny = parseFloat(document.getElementById('buyout_item_cost_cny').value) || null;
+        payload.buyout_rate_for_client = parseFloat(document.getElementById('buyout_rate_for_client').value) || null;
+        payload.buyout_commission_percent = parseFloat(document.getElementById('buyout_commission_percent').value);
+    }
+
+    showLoader(); // <--- ДОБАВЛЕНО
+    try {
+        const r = await fetch(`${API_URL}/clients/${cId}/orders`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (!r.ok) throw new Error(await handleApiError(r));
+
+        alert('Заказ создан!');
+        document.getElementById('add-order-form').reset();
+        document.getElementById('buyout-fields').classList.add('hidden');
+
+        await fetchAllOrdersData();
+        await fetchAndRenderOrders();
+    } catch (err) {
+        alert(`Ошибка: ${err.message}`);
+        console.error("Ошибка добавления заказа:", err);
+    } finally {
+        hideLoader(); // <--- ДОБАВЛЕНО
+    }
+}
+
+function handleOrderActions(e) {
+    if (e.target.classList.contains('update-status-btn')) {
+        const b = e.target;
+        const oId = b.dataset.orderId;
+        const nS = document.querySelector(`.status-select[data-order-id='${oId}']`).value;
+        updateOrderStatus(oId, nS, b);
+    }
+    if (e.target.closest('.edit-order-btn')) {
+        const orderId = e.target.closest('.edit-order-btn').dataset.orderId;
+        openEditOrderModal(orderId);
+    }
+    if (e.target.closest('.whatsapp-btn')) {
+        const clientId = e.target.closest('.whatsapp-btn').dataset.clientId;
+        openWhatsAppModal(clientId);
+    }
+}
+
+async function updateOrderStatus(oId, nS, b) {
+    b.textContent = '...';
+    b.disabled = true;
+    showLoader(); // <--- ДОБАВЛЕНО
+    try {
+        const r = await fetch(`${API_URL}/orders/${oId}/status`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: nS })
+        });
+        if (!r.ok) throw new Error(await handleApiError(r));
+        alert('Статус обновлен!');
+    } catch(err) {
+        alert(`Ошибка: ${err.message}`);
+        console.error("Ошибка обновления статуса:", err);
+    } finally {
+        b.textContent = 'Обновить';
+        b.disabled = false;
+        hideLoader(); // <--- ДОБАВЛЕНО
+    }
+}
+
+function toggleSelectMode() {
+    document.querySelectorAll('.order-checkbox').forEach(cb => cb.classList.toggle('hidden'));
+    document.getElementById('select-all-container').classList.toggle('hidden');
+    if (document.querySelectorAll('.order-checkbox:not(.hidden)').length === 0) {
+        document.getElementById('bulk-action-bar').classList.add('hidden');
+        document.getElementById('select-all-orders').checked = false;
+    }
+}
+
+async function togglePartyFilter() {
+    const container = document.getElementById('party-filter-container');
+    if (!container.classList.contains('hidden')) {
+        container.classList.add('hidden');
+        return;
+    }
+    showLoader(); // <--- ДОБАВЛЕНО
+    try {
+        const r = await fetch(`${API_URL}/orders/parties`);
+        if (!r.ok) throw new Error('Ошибка сети');
+        const j = await r.json();
+        const listDiv = document.getElementById('party-list');
+        listDiv.innerHTML = '';
+        j.parties.forEach(p => {
+            listDiv.innerHTML += `
+                <div>
+                    <input type="checkbox" id="party-${p}" value="${p}" class="party-checkbox h-4 w-4 rounded">
+                    <label for="party-${p}" class="ml-2">${p}</label>
+                </div>
+            `;
+        });
+        container.classList.remove('hidden');
+    } catch (e) {
+        alert(`Ошибка загрузки партий: ${e.message}`);
+    } finally {
+        hideLoader(); // <--- ДОБАВЛЕНО
+    }
+}
+
+function applyPartyFilter() {
+    fetchAndRenderOrders();
+    document.getElementById('party-filter-container').classList.add('hidden');
+}
+
+function toggleStatusFilter() {
+    const container = document.getElementById('status-filter-container');
+    const listDiv = document.getElementById('status-list');
+    listDiv.innerHTML = '';
+    orderStatuses.forEach(s => {
+        listDiv.innerHTML += `
+            <div>
+                <input type="checkbox" id="status-${s}" value="${s}" class="status-checkbox h-4 w-4 rounded">
+                <label for="status-${s}" class="ml-2">${s}</label>
+            </div>
+        `;
+    });
+    container.classList.toggle('hidden');
+}
+
+function applyAllFilters() {
+    fetchAndRenderOrders();
+    document.getElementById('party-filter-container').classList.add('hidden');
+    document.getElementById('status-filter-container').classList.add('hidden');
+}
+
+function handleOrderCheckboxChange(e) {
+    if (e.target.classList.contains('order-checkbox')) {
+        const bar = document.getElementById('bulk-action-bar');
+        const selected = document.querySelectorAll('.order-checkbox:checked');
+
+        if (selected.length > 0) {
+            bar.classList.remove('hidden');
+            document.getElementById('selected-count').textContent = `Выбрано: ${selected.length}`;
+
+            const selectedOrders = Array.from(selected).map(cb => orders.find(o => o.id == cb.dataset.orderId));
+            const allAwaitingBuyout = selectedOrders.every(o => o.status === 'Ожидает выкупа');
+
+            const buyoutBtn = document.getElementById('bulk-buyout-btn');
+            const statusBlock = document.getElementById('bulk-status-select').parentElement;
+            const dateBlock = document.getElementById('bulk-party-date-input').parentElement;
+
+            if (allAwaitingBuyout) {
+                buyoutBtn.classList.remove('hidden');
+                statusBlock.classList.add('hidden');
+                dateBlock.classList.add('hidden');
+            } else {
+                buyoutBtn.classList.add('hidden');
+                statusBlock.classList.remove('hidden');
+                dateBlock.classList.remove('hidden');
+                const statusSelect = document.getElementById('bulk-status-select');
+                if (orderStatuses && orderStatuses.length > 0) {
+                    statusSelect.innerHTML = orderStatuses.map(s => `<option value="${s}">${s}</option>`).join('');
+                }
+            }
+        } else {
+            bar.classList.add('hidden');
+        }
+    }
+}
+
+function handleSelectAllOrders(e) {
+    document.querySelectorAll('.order-checkbox').forEach(cb => cb.checked = e.target.checked);
+    handleOrderCheckboxChange({ target: { classList: { contains: () => true } } });
+}
+
+async function handleBulkUpdateStatus() {
+    const ids = Array.from(document.querySelectorAll('.order-checkbox:checked')).map(cb => parseInt(cb.dataset.orderId));
+    const nS = document.getElementById('bulk-status-select').value;
+    if (ids.length === 0) return alert('Не выбраны заказы.');
+    showLoader(); // <--- ДОБАВЛЕНО
+    try {
+        const r = await fetch(`${API_URL}/orders/bulk_action`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'update_status', order_ids: ids, new_status: nS })
+        });
+        if (!r.ok) throw new Error(await handleApiError(r));
+        const j = await r.json();
+        alert(j.message);
+        await fetchAllOrdersData();
+        await fetchAndRenderOrders();
+        toggleSelectMode();
+    } catch (e) {
+        alert(`Ошибка: ${e.message}`);
+    } finally {
+        hideLoader(); // <--- ДОБАВЛЕНО
+    }
+}
+
+async function handleBulkUpdatePartyDate() {
+    const ids = Array.from(document.querySelectorAll('.order-checkbox:checked')).map(cb => parseInt(cb.dataset.orderId));
+    const newDate = document.getElementById('bulk-party-date-input').value;
+    if (ids.length === 0) return alert('Не выбраны заказы.');
+    if (!newDate) return alert('Не выбрана новая дата партии.');
+    const pass = prompt(`Изменить дату партии для ${ids.length} заказов? Введите пароль:`);
+    if (pass === null) return;
+    showLoader(); // <--- ДОБАВЛЕНО
+    try {
+        const r = await fetch(`${API_URL}/orders/bulk_action`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'update_party_date', order_ids: ids, new_party_date: newDate, password: pass })
+        });
+        if (!r.ok) throw new Error(await handleApiError(r));
+        const j = await r.json();
+        alert(j.message);
+        await fetchAndRenderOrders();
+        toggleSelectMode();
+    } catch (e) {
+        alert(`Ошибка: ${e.message}`);
+    } finally {
+        hideLoader(); // <--- ДОБАВЛЕНО
+    }
+}
+
+async function handleBulkDelete() {
+    const ids = Array.from(document.querySelectorAll('.order-checkbox:checked')).map(cb => parseInt(cb.dataset.orderId));
+    if (ids.length === 0) return alert('Не выбраны заказы.');
+    const p = prompt(`Удалить ${ids.length} заказов? Введите пароль:`);
+    if (p === null) return;
+    showLoader(); // <--- ДОБАВЛЕНО
+    try {
+        const r = await fetch(`${API_URL}/orders/bulk_action`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'delete', order_ids: ids, password: p })
+        });
+        if (!r.ok) throw new Error(await handleApiError(r));
+        const j = await r.json();
+        alert(j.message);
+        await fetchAllOrdersData();
+        await fetchAndRenderOrders();
+        toggleSelectMode();
+    } catch (e) {
+        alert(`Ошибка: ${e.message}`);
+    } finally {
+        hideLoader(); // <--- ДОБАВЛЕНО
+    }
+}
+
+async function handleOrderExcelImport() {
+    const i = document.getElementById('order-excel-input');
+    const rDiv = document.getElementById('order-import-results');
+    const partyDate = document.getElementById('import-party-date').value;
+
+    if (i.files.length === 0) {
+        alert('Выберите Excel-файл.');
+        return;
+    }
+
+    showLoader(); // <--- ДОБАВЛЕНО
+    try {
+        const json = await readExcelFile(i.files[0]);
+
+        if (json.length === 0 || !json[0].track_code || (!json[0].client_code && !json[0].phone)) {
+            alert('Ошибка! Файл должен содержать колонку "track_code" и хотя бы одну из колонок: "client_code" или "phone".');
+            return;
+        }
+
+        rDiv.innerHTML = `<p class="text-blue-600">Идет импорт ${json.length} заказов...</p>`;
+
+        const payload = {
+            orders_data: json.map(row => ({
+                track_code: String(row.track_code),
+                client_code: row.client_code ? String(row.client_code) : null,
+                phone: row.phone ? String(row.phone) : null,
+                comment: row.comment ? String(row.comment) : null
+            })),
+            party_date: partyDate ? partyDate : null
+        };
+
+        const res = await fetch(`${API_URL}/orders/bulk_import`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) throw new Error(await handleApiError(res));
+
+        const j = await res.json();
+        let msg = `<p class="text-green-600"><strong>Успешно: ${j.created_orders}</strong></p>`;
+        if(j.warnings && j.warnings.length > 0) {
+            msg += `<p class="text-yellow-600 mt-2"><strong>Предупреждения (${j.warnings.length}):</strong></p><ul class="list-disc list-inside">${j.warnings.map(w => `<li>${w}</li>`).join('')}</ul>`;
+        }
+        if (j.errors && j.errors.length > 0) {
+            msg += `<p class="text-red-600 mt-2"><strong>Ошибки (${j.errors.length}):</strong></p><ul class="list-disc list-inside">${j.errors.map(er => `<li>${er}</li>`).join('')}</ul>`;
+        }
+        rDiv.innerHTML = msg;
+
+        await fetchAllOrdersData();
+        await fetchAndRenderOrders();
+
+    } catch (err) {
+        rDiv.innerHTML = `<p class="text-red-500">Ошибка: ${err.message}</p>`;
+        console.error("Ошибка импорта заказов:", err);
+    } finally {
+        hideLoader(); // <--- ДОБАВЛЕНО
+    }
+}
+
+async function searchClients(q, onSelectCallback, resultsDiv) {
+    if (!q) {
+        resultsDiv.innerHTML = '';
+        return;
+    }
+    // Здесь не нужен глобальный лоадер, т.к. это быстрый поиск в реальном времени
+    try {
+        const r = await fetch(`${API_URL}/clients/search?q=${q}`);
+        const fClients = await r.json();
+        resultsDiv.innerHTML = '';
+        if (fClients.length > 0) {
+            fClients.forEach(c => {
+                const i = document.createElement('div');
+                i.className = 'p-2 hover:bg-gray-100 cursor-pointer';
+                i.textContent = `${c.full_name} (${c.client_code_prefix}${c.client_code_num}) - ${c.phone}`;
+                i.addEventListener('click', () => onSelectCallback(c));
+                resultsDiv.appendChild(i);
+            });
+        } else {
+            resultsDiv.innerHTML = '<div class="p-2 text-gray-500">Не найдено.</div>';
+        }
+    } catch (e) {
+        console.error("Ошибка поиска:", e);
+    }
+}
+
+async function openEditOrderModal(orderId) {
+    const modal = document.getElementById('edit-order-modal');
+    const order = orders.find(o => o.id == orderId);
+    if (!order) return alert('Ошибка: заказ не найден.');
+
+    let buyoutHtml = '';
+    if (order.purchase_type === 'Выкуп') {
+        buyoutHtml = `
+            <div>
+                <label class="block text-sm">Реальный курс выкупа (сом/юань)</label>
+                <input type="number" step="any" name="buyout_actual_rate" class="mt-1 w-full p-2 border rounded" value="${order.buyout_actual_rate || ''}">
+            </div>
+        `;
+    }
+
+    modal.querySelector('.relative').innerHTML = `
+        <div class="flex justify-between items-start">
+            <h3 class="text-2xl font-bold mb-4">Редактировать заказ</h3>
+            <button onclick="document.getElementById('edit-order-modal').classList.remove('is-open')" class="text-2xl font-bold">&times;</button>
+        </div>
+        <form id="edit-order-form" data-order-id="${orderId}" class="space-y-4">
+            <div>
+                <label class="block text-sm">Трек-код</label>
+                <input type="text" name="track_code" class="mt-1 w-full p-2 border rounded" value="${order.track_code}">
+            </div>
+            ${buyoutHtml}
+            <div class="border-t pt-4 mt-4">
+                <label class="block text-sm font-medium mb-2">Сменить клиента</label>
+                <div class="relative">
+                    <input type="text" id="edit-order-client-search" placeholder="Поиск по телефону..." class="w-full p-2 border rounded">
+                    <input type="hidden" id="edit-order-new-client-id">
+                    <div id="edit-order-client-results" class="absolute bottom-full left-0 right-0 bg-white border mb-1 rounded-md shadow-lg z-20"></div>
+                </div>
+            </div>
+            <div class="flex gap-4 pt-4">
+                <button type="button" onclick="document.getElementById('edit-order-modal').classList.remove('is-open')" class="w-full bg-gray-200 py-2 rounded">Отмена</button>
+                <button type="submit" class="w-full bg-green-600 text-white py-2 rounded">Сохранить</button>
+            </div>
+        </form>
+    `;
+    modal.classList.add('is-open');
+
+    document.getElementById('edit-order-client-search').addEventListener('input', (e) => {
+        const resultsDiv = document.getElementById('edit-order-client-results');
+        searchClients(e.target.value, (client) => {
+            document.getElementById('edit-order-client-search').value = `${client.full_name} (${client.phone})`;
+            document.getElementById('edit-order-new-client-id').value = client.id;
+            resultsDiv.innerHTML = '';
+        }, resultsDiv);
+    });
+
+    document.getElementById('edit-order-form').addEventListener('submit', handleSaveOrder);
+}
+
+async function handleSaveOrder(e) {
+    e.preventDefault();
+    const form = e.target;
+    const orderId = form.dataset.orderId;
+    const payload = {
+        track_code: form.elements.track_code.value
+    };
+
+    if (form.elements.buyout_actual_rate) {
+        payload.buyout_actual_rate = parseFloat(form.elements.buyout_actual_rate.value) || null;
+    }
+
+    const newClientId = document.getElementById('edit-order-new-client-id').value;
+    if (newClientId) {
+        payload.client_id = parseInt(newClientId);
+    }
+
+    showLoader(); // <--- ДОБАВЛЕНО
+    try {
+        const response = await fetch(`${API_URL}/orders/${orderId}`, {
+            method: 'PATCH',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        if (!response.ok) throw new Error(await handleApiError(response));
+        document.getElementById('edit-order-modal').classList.remove('is-open');
+        await fetchAndRenderOrders();
+    } catch(err) {
+        alert(`Ошибка: ${err.message}`);
+    } finally {
+        hideLoader(); // <--- ДОБАВЛЕНО
+    }
+}
+
+function handleExportOrders() {
+    if (!orders || orders.length === 0) {
+        alert('Нет данных для экспорта. Сначала загрузите или отфильтруйте заказы.');
+        return;
+    }
+
+    alert(`Подготовка к экспорту ${orders.length} заказов...`);
+
+    const dataToExport = orders.map(order => {
+        return {
+            'Дата Партии': order.party_date,
+            'Трек-код': order.track_code,
+            'Статус': order.status,
+            'Клиент': order.client.full_name,
+            'Телефон Клиента': order.client.phone,
+            'Код Клиента': `${order.client.client_code_prefix || ''}${order.client.client_code_num || ''}`,
+            'Примечание': order.comment || '',
+            'Дата Выдачи': order.issued_at ? new Date(order.issued_at).toLocaleString() : '',
+            'Вес (кг)': order.weight_kg || '',
+            'Стоимость (сом)': order.final_cost_som || ''
+        };
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Заказы');
+    XLSX.writeFile(workbook, `Экспорт_Заказов_${new Date().toLocaleDateString()}.xlsx`);
+}
+
+function openWhatsAppModal(clientId) {
+    const modal = document.getElementById('whatsapp-modal');
+    const modalContent = modal.querySelector('.relative');
+    const client = clients.find(c => c.id == clientId);
+    if (!client) return alert('Клиент не найден.');
+
+    const clientOrders = orders.filter(o => o.client_id == clientId && o.status !== 'Выдан');
+
+    const ordersHtml = clientOrders.map(order => `
+        <div class="flex items-center">
+            <input type="checkbox" id="wa-order-${order.id}" value="${order.track_code}" class="wa-order-checkbox h-4 w-4" checked>
+            <label for="wa-order-${order.id}" class="ml-3 block text-sm text-gray-900">${order.track_code} (${order.status})</label>
+        </div>
+    `).join('');
+
+    modalContent.innerHTML = `
+        <div class="flex justify-between items-start mb-4">
+            <h3 class="text-2xl font-bold">Отправить в WhatsApp</h3>
+            <button onclick="document.getElementById('whatsapp-modal').classList.remove('is-open')" class="text-2xl font-bold">&times;</button>
+        </div>
+        <p class="mb-2 text-sm">Выберите заказы для уведомления:</p>
+        <div class="space-y-2 max-h-40 overflow-y-auto border p-2 rounded-md mb-4">${ordersHtml}</div>
+        <label class="block text-sm font-medium">Текст сообщения:</label>
+        <textarea id="whatsapp-message" class="w-full h-32 p-2 border rounded-md mt-1"></textarea>
+        <div class="flex gap-4 mt-6">
+            <button type="button" onclick="document.getElementById('whatsapp-modal').classList.remove('is-open')" class="w-full bg-gray-200 py-2 rounded">Отмена</button>
+            <button id="send-whatsapp-btn" class="w-full bg-green-500 text-white py-2 rounded">Отправить</button>
+        </div>
+    `;
+    modal.classList.add('is-open');
+
+    const generateMessage = () => {
+        const checkedOrders = Array.from(document.querySelectorAll('.wa-order-checkbox:checked')).map(cb => cb.value);
+        let message = `Здравствуйте, ${client.full_name}! 👋\n\n`;
+        if (checkedOrders.length > 0) {
+            message += `Хотим уведомить вас о ваших заказах:\n\n`;
+            checkedOrders.forEach(trackCode => {
+                const order = orders.find(o => o.track_code === trackCode);
+                message += `📦 Трек: ${order.track_code}\nСтатус: ${order.status}\n\n`;
+            });
+        } else {
+            message += `Есть новости по вашим заказам.`;
+        }
+        document.getElementById('whatsapp-message').value = message;
+    };
+
+    generateMessage();
+    modal.querySelectorAll('.wa-order-checkbox').forEach(cb => cb.addEventListener('change', generateMessage));
+
+    document.getElementById('send-whatsapp-btn').addEventListener('click', () => {
+        const phone = client.phone.replace(/[^0-9]/g, '');
+        const text = encodeURIComponent(document.getElementById('whatsapp-message').value);
+        window.open(`https://wa.me/${phone}?text=${text}`, '_blank');
+        modal.classList.remove('is-open');
+    });
+}
+
+function openBuyoutModal() {
+    const modal = document.getElementById('buyout-modal');
+    const selectedCheckboxes = document.querySelectorAll('.order-checkbox:checked');
+    const selectedOrders = Array.from(selectedCheckboxes).map(cb => orders.find(o => o.id == cb.dataset.orderId));
+
+    const ordersHtml = selectedOrders.map(o => `<li class="text-sm">${o.track_code}</li>`).join('');
+
+    modal.querySelector('.relative').innerHTML = `
+        <h3 class="text-2xl font-bold mb-4">Массовый выкуп</h3>
+        <p class="text-sm mb-2">Выбраны следующие заказы:</p>
+        <ul class="list-disc list-inside mb-4 max-h-40 overflow-y-auto">${ordersHtml}</ul>
+        <form id="buyout-form">
+            <div>
+                <label class="block text-sm">Введите реальный курс выкупа (сом/юань)</label>
+                <input type="number" step="any" id="buyout-actual-rate-input" class="mt-1 w-full p-2 border rounded" required>
+            </div>
+            <div class="flex gap-4 mt-6">
+                <button type="button" onclick="document.getElementById('buyout-modal').classList.remove('is-open')" class="w-full bg-gray-200 py-2 rounded">Отмена</button>
+                <button type="submit" class="w-full bg-purple-600 text-white py-2 rounded">Подтвердить выкуп</button>
+            </div>
+        </form>
+    `;
+    modal.classList.add('is-open');
+    document.getElementById('buyout-form').addEventListener('submit', handleBulkBuyout);
+}
+
+async function handleBulkBuyout(e) {
+    e.preventDefault();
+    const rate = parseFloat(document.getElementById('buyout-actual-rate-input').value);
+    const ids = Array.from(document.querySelectorAll('.order-checkbox:checked')).map(cb => parseInt(cb.dataset.orderId));
+
+    showLoader(); // <--- ДОБАВЛЕНО
+    try {
+        const r = await fetch(`${API_URL}/orders/bulk_action`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'buyout', order_ids: ids, buyout_actual_rate: rate })
+        });
+        if (!r.ok) throw new Error(await handleApiError(r));
+        const j = await r.json();
+        alert(j.message);
+        document.getElementById('buyout-modal').classList.remove('is-open');
+        await fetchAndRenderOrders();
+        toggleSelectMode();
+    } catch (err) {
+        alert(`Ошибка: ${err.message}`);
+    } finally {
+        hideLoader(); // <--- ДОБАВЛЕНО
+    }
+}
+
+// =================================================================
+// МОДУЛЬ: ВЫДАЧА
+// =================================================================
+
+const renderIssueTab = () => {
+    const pane = document.getElementById('tab-issue');
+    if (!pane) return;
+    pane.innerHTML = `
+        <div class="bg-white p-6 rounded-lg shadow-md">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-2xl font-bold">Заказы, готовые к выдаче</h2>
+                <div>
+                    <button id="show-issued-history-btn" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded">История выданных</button>
+                    <button id="refresh-issue-list" title="Обновить" class="text-2xl ml-4">&circlearrowright;</button>
+                </div>
+            </div>
+            <div class="mb-4">
+                <input type="search" id="issue-search-input" placeholder="🔍 Поиск по клиенту, телефону, трек-коду..." class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-indigo-500">
+            </div>
+            <div id="issue-list" class="space-y-4"></div>
+        </div>
+    `;
+    document.getElementById('refresh-issue-list').addEventListener('click', fetchAndRenderIssueList);
+    document.getElementById('show-issued-history-btn').addEventListener('click', showIssuedHistory);
+    document.getElementById('issue-search-input').addEventListener('input', handleIssueSearch);
+
+    pane.addEventListener('click', (e) => {
+        if (e.target.classList.contains('issue-btn')) {
+            const clientId = e.target.dataset.clientId;
+            const client = clients.find(c => c.id == clientId);
+
+            const selectedCheckboxes = document.querySelectorAll(`.issue-order-checkbox[data-client-id="${clientId}"]:checked`);
+            const orderIds = Array.from(selectedCheckboxes).map(cb => parseInt(cb.dataset.orderId));
+
+            if (orderIds.length === 0) return;
+
+            if (!client.client_code_num || client.full_name.toLowerCase().includes('неизвестный')) {
+                promptToUpdateClientData(client, () => renderIssueModal(orderIds));
+            } else {
+                renderIssueModal(orderIds);
+            }
+        }
+    });
+
+    pane.addEventListener('change', (e) => {
+        const target = e.target;
+        if (target.classList.contains('select-all-client-orders')) {
+            const clientId = target.dataset.clientId;
+            const orderCheckboxes = document.querySelectorAll(`.issue-order-checkbox[data-client-id="${clientId}"]`);
+            orderCheckboxes.forEach(cb => cb.checked = target.checked);
+        }
+        if (target.classList.contains('issue-order-checkbox') || target.classList.contains('select-all-client-orders')) {
+            const clientId = target.dataset.clientId;
+            const issueBtn = document.querySelector(`.issue-btn[data-client-id="${clientId}"]`);
+            const anyChecked = document.querySelector(`.issue-order-checkbox[data-client-id="${clientId}"]:checked`);
+            issueBtn.disabled = !anyChecked;
+        }
+    });
+};
+
+function handleIssueSearch(e) {
+    const searchTerm = e.target.value.toLowerCase();
+    const clientGroups = document.querySelectorAll('#issue-list .client-group');
+    clientGroups.forEach(group => {
+        const clientName = group.dataset.clientName.toLowerCase();
+        const clientCode = group.dataset.clientCode.toLowerCase();
+        const clientPhone = group.dataset.clientPhone.toLowerCase();
+        const trackCodes = group.dataset.trackCodes.toLowerCase();
+
+        if (clientName.includes(searchTerm) || clientCode.includes(searchTerm) || clientPhone.includes(searchTerm) || trackCodes.includes(searchTerm)) {
+            group.classList.remove('hidden');
+        } else {
+            group.classList.add('hidden');
+        }
+    });
+}
+
+async function fetchAndRenderIssueList() {
+    const listDiv = document.getElementById('issue-list');
+    listDiv.innerHTML = '<p>Загрузка заказов для выдачи...</p>';
+    showLoader(); // <--- ДОБАВЛЕНО
+    try {
+        const response = await fetch(`${API_URL}/orders/ready_for_issue`);
+        if (!response.ok) throw new Error(await handleApiError(response));
+        const data = await response.json();
+        const ordersByClient = data.orders.reduce((acc, order) => {
+            const client_id = order.client.id;
+            if (!acc[client_id]) {
+                acc[client_id] = { client: order.client, orders: [] };
+            }
+            acc[client_id].orders.push(order);
+            return acc;
+        }, {});
+
+        listDiv.innerHTML = '';
+        if (Object.keys(ordersByClient).length === 0) {
+            listDiv.innerHTML = '<p class="text-gray-500">Нет заказов, готовых к выдаче.</p>';
+            return;
+        }
+
+        for (const clientId in ordersByClient) {
+            const group = ordersByClient[clientId];
+            const clientDiv = document.createElement('div');
+            clientDiv.className = 'client-group p-4 bg-gray-50 rounded-lg shadow-sm';
+            clientDiv.dataset.clientName = group.client.full_name;
+            clientDiv.dataset.clientCode = `${group.client.client_code_prefix}${group.client.client_code_num}`;
+            clientDiv.dataset.clientPhone = group.client.phone;
+            clientDiv.dataset.trackCodes = group.orders.map(o => o.track_code).join(',');
+
+            const ordersHtml = group.orders.map(o => `
+                <li class="flex items-center gap-2">
+                    <input type="checkbox" class="issue-order-checkbox h-4 w-4" data-order-id="${o.id}" data-client-id="${clientId}">
+                    <span>${o.track_code}</span>
+                </li>
+            `).join('');
+
+            clientDiv.innerHTML = `
+                <div class="flex justify-between items-center">
+                    <div class="flex items-center gap-3">
+                        <input type="checkbox" class="select-all-client-orders h-5 w-5" data-client-id="${clientId}" title="Выбрать все заказы клиента">
+                        <div>
+                            <h3 class="font-bold text-lg">${group.client.full_name}</h3>
+                            <p class="text-sm text-gray-600">${group.client.client_code_prefix}${group.client.client_code_num}</p>
+                        </div>
+                    </div>
+                    <button class="issue-btn bg-green-500 text-white font-bold py-2 px-4 rounded-lg" data-client-id="${clientId}" disabled>Выдать выбранное</button>
+                </div>
+                <ul class="mt-2 space-y-1 pl-8">${ordersHtml}</ul>
+            `;
+            listDiv.appendChild(clientDiv);
+        }
+    } catch (error) {
+        listDiv.innerHTML = `<p class="text-red-500">Ошибка загрузки: ${error.message}</p>`;
+    } finally {
+        hideLoader(); // <--- ДОБАВЛЕНО
+    }
+}
+
+async function renderIssueModal(orderIds) {
+    if (!activeShift) {
+        alert('Смена не открыта! Сначала откройте смену, чтобы выдать заказ.');
+        return;
+    }
+    const issueModal = document.getElementById('issue-modal');
+    const modalContent = issueModal.querySelector('.relative');
+    const ordersToIssue = orders.filter(o => orderIds.includes(o.id));
+    let ordersHtml = ordersToIssue.map(o => `
+        <div class="flex justify-between items-center border-b pb-2 mb-2">
+            <span class="font-semibold text-sm">${o.track_code}</span>
+            <input type="number" step="any" placeholder="Вес (кг)" class="issue-weight-input w-24 p-1 border rounded text-sm" data-order-id="${o.id}" required>
+        </div>
+    `).join('');
+
+    modalContent.innerHTML = `
+        <h3 class="text-2xl font-bold mb-4">Оформление выдачи</h3>
+        <form id="issue-form">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="space-y-4">
+                    <div class="p-3 bg-blue-50 rounded-lg">
+                        <label class="block text-sm font-medium">Общий вес (кг)</label>
+                        <input type="number" step="any" id="total-weight-input" placeholder="Для авто-распределения" class="mt-1 w-full p-2 border rounded-md">
+                    </div>
+                    <div class="max-h-60 overflow-y-auto pr-2">${ordersHtml}</div>
+                    <div class="p-3 bg-gray-100 rounded-lg space-y-2">
+                        <div>
+                            <label class="block text-sm">Цена за кг ($)</label>
+                            <input type="number" step="0.1" id="issue-price-per-kg" value="${sysConfig.price_per_kg_usd}" class="w-full p-2 border rounded">
+                        </div>
+                        <div>
+                            <label class="block text-sm">Курс USD (сом)</label>
+                            <input type="number" step="0.1" id="issue-exchange-rate" value="${sysConfig.exchange_rate_usd}" class="w-full p-2 border rounded">
+                        </div>
+                    </div>
+                </div>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium">Способ оплаты</label>
+                        <select id="payment-method-select" class="w-full mt-1 p-2 border rounded-md bg-white">
+                            <option value="cash">Наличные</option>
+                            <option value="card">Картой</option>
+                            <option value="mixed">Смешанный</option>
+                        </select>
+                    </div>
+                    <div id="payment-fields-container" class="space-y-3"></div>
+                    <div class="p-4 bg-indigo-50 rounded-lg text-right space-y-2">
+                        <div class="text-lg">Итого к оплате: <span id="total-cost-display" class="font-bold">0.00 сом</span></div>
+                        <div class="text-md">Всего оплачено: <span id="total-paid-display" class="font-bold">0.00 сом</span></div>
+                        <div class="text-xl text-green-600">Сдача: <span id="change-display" class="font-bold">0.00 сом</span></div>
+                    </div>
+                </div>
+            </div>
+            <div class="mt-6 flex justify-end gap-4">
+                <button type="button" id="cancel-issue" class="bg-gray-300 hover:bg-gray-400 text-black font-bold py-2 px-6 rounded-lg">Отмена</button>
+                <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-lg">Выдать</button>
+            </div>
+        </form>
+    `;
+    issueModal.classList.add('is-open');
+
+    const form = modalContent.querySelector('#issue-form');
+    const paymentMethodSelect = document.getElementById('payment-method-select');
+    const paymentFieldsContainer = document.getElementById('payment-fields-container');
+    const totalWeightInput = document.getElementById('total-weight-input');
+    const individualWeightInputs = document.querySelectorAll('.issue-weight-input');
+    const priceInput = document.getElementById('issue-price-per-kg');
+    const rateInput = document.getElementById('issue-exchange-rate');
+    let totalCost = 0;
+
+    const updateTotals = () => {
+        const price = parseFloat(priceInput.value) || 0;
+        const rate = parseFloat(rateInput.value) || 0;
+        let totalWeight = 0;
+        individualWeightInputs.forEach(input => { totalWeight += parseFloat(input.value) || 0; });
+        totalCost = totalWeight * price * rate;
+        document.getElementById('total-cost-display').textContent = `${totalCost.toFixed(2)} сом`;
+        updatePaymentFields();
+    };
+
+    const updatePaymentFields = () => {
+        const method = paymentMethodSelect.value;
+        let cashPaid = parseFloat(document.getElementById('issue-paid-cash')?.value) || 0;
+        let cardPaid = parseFloat(document.getElementById('issue-paid-card')?.value) || 0;
+        if (method === 'card') {
+            cardPaid = totalCost;
+            cashPaid = 0;
+        }
+        let totalPaid = cashPaid + cardPaid;
+        let change = totalPaid > totalCost ? totalPaid - totalCost : 0;
+        document.getElementById('total-paid-display').textContent = `${totalPaid.toFixed(2)} сом`;
+        document.getElementById('change-display').textContent = `${change.toFixed(2)} сом`;
+        if (document.getElementById('issue-paid-card') && method === 'card') {
+            document.getElementById('issue-paid-card').value = cardPaid.toFixed(2);
+        }
+    };
+
+    const renderPaymentFields = () => {
+        const method = paymentMethodSelect.value;
+        paymentFieldsContainer.innerHTML = '';
+        const cashField = `<div><label class="block text-sm">Наличными (сом)</label><input type="number" id="issue-paid-cash" value="0" class="w-full p-2 border rounded"></div>`;
+        const cardField = `<div><label class="block text-sm">Картой (сом)</label><input type="number" id="issue-paid-card" value="0.00" class="w-full p-2 border rounded" ${method === 'card' ? 'readonly' : ''}></div>`;
+        const cardType = `<div><label class="block text-sm">Тип карты</label><select id="issue-card-type" class="w-full p-2 border rounded bg-white">${sysConfig.card_payment_types.map(t => `<option value="${t}">${t}</option>`).join('')}</select></div>`;
+
+        if (method === 'cash') paymentFieldsContainer.innerHTML = cashField;
+        if (method === 'card') paymentFieldsContainer.innerHTML = cardField + cardType;
+        if (method === 'mixed') paymentFieldsContainer.innerHTML = cashField + cardField + cardType;
+
+        document.getElementById('issue-paid-cash')?.addEventListener('input', () => {
+            if (method === 'mixed') {
+                const cashAmount = parseFloat(document.getElementById('issue-paid-cash').value) || 0;
+                const remainder = totalCost - cashAmount;
+                document.getElementById('issue-paid-card').value = (remainder > 0 ? remainder : 0).toFixed(2);
+            }
+            updatePaymentFields();
+        });
+        document.getElementById('issue-paid-card')?.addEventListener('input', updatePaymentFields);
+        updateTotals();
+    };
+
+    renderPaymentFields();
+    paymentMethodSelect.addEventListener('change', renderPaymentFields);
+    [priceInput, rateInput].forEach(el => el.addEventListener('input', updateTotals));
+    totalWeightInput.addEventListener('input', () => {
+        const totalWeight = parseFloat(totalWeightInput.value) || 0;
+        if (totalWeight >= 0 && individualWeightInputs.length > 0) {
+            const weightPerItem = (totalWeight / individualWeightInputs.length).toFixed(3);
+            individualWeightInputs.forEach(input => { input.value = weightPerItem; });
+        } else { individualWeightInputs.forEach(input => { input.value = ''; }); }
+        updateTotals();
+    });
+    individualWeightInputs.forEach(input => {
+        input.addEventListener('input', () => {
+            totalWeightInput.value = '';
+            updateTotals();
+        });
+    });
+    document.getElementById('cancel-issue').addEventListener('click', () => issueModal.classList.remove('is-open'));
+    form.addEventListener('submit', handleIssueSubmit);
+}
+
+async function handleIssueSubmit(e) {
+    e.preventDefault();
+    const ordersPayload = Array.from(document.querySelectorAll('.issue-weight-input')).map(input => ({
+        order_id: parseInt(input.dataset.orderId),
+        weight_kg: parseFloat(input.value)
+    }));
+    if (ordersPayload.some(o => !o.weight_kg || o.weight_kg <= 0)) {
+        alert('Ошибка: вес должен быть указан для всех заказов и быть больше нуля.');
+        return;
+    }
+    const method = document.getElementById('payment-method-select').value;
+    const payload = {
+        orders: ordersPayload,
+        price_per_kg_usd: parseFloat(document.getElementById('issue-price-per-kg').value),
+        exchange_rate_usd: parseFloat(document.getElementById('issue-exchange-rate').value),
+        paid_cash: (method === 'cash' || method === 'mixed') ? (parseFloat(document.getElementById('issue-paid-cash').value) || 0) : 0,
+        paid_card: (method === 'card' || method === 'mixed') ? (parseFloat(document.getElementById('issue-paid-card').value) || 0) : 0,
+        card_payment_type: (method === 'card' || method === 'mixed') ? document.getElementById('issue-card-type').value : null
+    };
+
+    showLoader(); // <--- ДОБАВЛЕНО
+    try {
+        const response = await fetch(`${API_URL}/orders/issue`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (!response.ok) throw new Error(await handleApiError(response));
+        const result = await response.json();
+        alert(result.message);
+        issueModal.classList.remove('is-open');
+        await fetchAndRenderIssueList();
+        await fetchAllOrdersData();
+    } catch (error) {
+        alert(`Ошибка при выдаче: ${error.message}`);
+    } finally {
+        hideLoader(); // <--- ДОБАВЛЕНО
+    }
+}
+
+async function showIssuedHistory() {
+    const issuedHistoryModal = document.getElementById('issued-history-modal');
+    const modalContent = issuedHistoryModal.querySelector('.relative');
+
+    const today = new Date().toISOString().split('T')[0];
+    modalContent.innerHTML = `
+        <div class="flex justify-between items-center mb-4">
+             <h3 class="text-2xl font-bold">История выданных заказов</h3>
+             <button id="close-history-modal-btn" class="text-2xl font-bold">&times;</button>
+        </div>
+        <div class="flex flex-wrap gap-4 items-end p-4 bg-gray-50 rounded-lg mb-4">
+            <div>
+                <label for="history-start-date" class="block text-sm font-medium">С</label>
+                <input type="date" id="history-start-date" value="${today}" class="mt-1 p-2 border rounded-md">
+            </div>
+            <div>
+                <label for="history-end-date" class="block text-sm font-medium">По</label>
+                <input type="date" id="history-end-date" value="${today}" class="mt-1 p-2 border rounded-md">
+            </div>
+            <button id="filter-history-btn" class="bg-blue-600 text-white py-2 px-4 rounded-md">Показать</button>
+        </div>
+        <div id="history-content" class="overflow-y-auto max-h-[60vh]">
+            <p>Загрузка данных...</p>
+        </div>
+    `;
+    issuedHistoryModal.classList.add('is-open');
+
+    const fetchAndRenderHistory = async () => {
+        const contentDiv = document.getElementById('history-content');
+        contentDiv.innerHTML = '<p>Загрузка данных...</p>';
+        const startDate = document.getElementById('history-start-date').value;
+        const endDate = document.getElementById('history-end-date').value;
+        showLoader(); // <--- ДОБАВЛЕНО
+
+        try {
+            const response = await fetch(`${API_URL}/orders/issued?start_date=${startDate}&end_date=${endDate}`);
+            if (!response.ok) throw new Error(await handleApiError(response));
+            const data = await response.json();
+
+            if (!data.orders || data.orders.length === 0) {
+                contentDiv.innerHTML = '<p class="text-gray-500">Выданных заказов за этот период нет.</p>';
+                return;
+            }
+
+            const tableRows = data.orders.map(o => `
+                <tr class="border-b hover:bg-gray-50 text-sm">
+                    <td class="p-2"><input type="checkbox" class="history-checkbox h-4 w-4" data-order-id="${o.id}"></td>
+                    <td class="p-2">${new Date(o.issued_at).toLocaleString()}</td>
+                    <td class="p-2">${o.client.full_name} (${o.client.client_code_prefix}${o.client.client_code_num})</td>
+                    <td class="p-2">${o.track_code}</td>
+                    <td class="p-2">${o.final_cost_som.toFixed(2)} сом</td>
+                    <td class="p-2">
+                        <button class="revert-status-btn text-xs bg-yellow-400 hover:bg-yellow-500 text-yellow-900 px-2 py-1 rounded" data-order-id="${o.id}">Вернуть</button>
+                    </td>
+                </tr>
+            `).join('');
+
+            contentDiv.innerHTML = `
+                <div class="flex justify-between items-center mb-4 gap-4">
+                    <input type="search" id="history-search-input" placeholder="🔍 Поиск по клиенту, трек-коду..." class="w-full p-2 border rounded-lg">
+                    <button id="bulk-revert-btn" class="bg-yellow-500 text-white font-bold py-2 px-4 rounded-lg whitespace-nowrap">Вернуть выбранное</button>
+                </div>
+                <div class="overflow-y-auto max-h-[50vh]">
+                    <table class="w-full text-left" id="history-table">
+                        <thead class="bg-gray-100 sticky top-0">
+                            <tr>
+                               <th class="p-2"><input type="checkbox" id="select-all-history" class="h-4 w-4"></th>
+                               <th class="p-2">Дата выдачи</th>
+                               <th class="p-2">Клиент</th>
+                               <th class="p-2">Трек-код</th>
+                               <th class="p-2">Сумма</th>
+                               <th class="p-2">Действие</th>
+                            </tr>
+                        </thead>
+                        <tbody>${tableRows}</tbody>
+                    </table>
+                </div>
+            `;
+
+            document.getElementById('history-search-input').addEventListener('input', handleHistorySearch);
+            document.getElementById('bulk-revert-btn').addEventListener('click', handleBulkRevert);
+
+            document.getElementById('select-all-history').addEventListener('change', (e) => {
+                document.querySelectorAll('.history-checkbox').forEach(cb => cb.checked = e.target.checked);
+            });
+
+            contentDiv.querySelector('table').addEventListener('click', e => {
+                if (e.target.classList.contains('revert-status-btn')) {
+                    const orderId = e.target.dataset.orderId;
+                    if (confirm('Вы уверены, что хотите вернуть этот заказ?')) {
+                        revertOrderStatus(orderId);
+                    }
+                }
+            });
+
+        } catch (error) {
+            contentDiv.innerHTML = `<p class="text-red-500">Ошибка: ${error.message}</p>`;
+        } finally {
+            hideLoader(); // <--- ДОБАВЛЕНО
+        }
+    };
+
+    document.getElementById('close-history-modal-btn').addEventListener('click', () => issuedHistoryModal.classList.remove('is-open'));
+    document.getElementById('filter-history-btn').addEventListener('click', fetchAndRenderHistory);
+
+    fetchAndRenderHistory();
+}
+
+async function revertOrderStatus(orderId) {
+    showLoader(); // <--- ДОБАВЛЕНО
+    try {
+        const response = await fetch(`${API_URL}/orders/${orderId}/revert_status`, { method: 'PATCH' });
+        if (!response.ok) throw new Error(await handleApiError(response));
+        alert('Статус заказа возвращен!');
+        await showIssuedHistory();
+        await fetchAndRenderIssueList();
+    } catch (error) {
+        alert(`Ошибка: ${error.message}`);
+    } finally {
+        hideLoader(); // <--- ДОБАВЛЕНО
+    }
+}
+
+async function fetchAllOrdersData() {
+    showLoader(); // <--- ДОБАВЛЕНО
+    try {
+        const r = await fetch(`${API_URL}/orders`);
+        if (!r.ok) throw new Error('Failed to fetch orders data');
+        const j = await r.json();
+        orders = j.orders;
+    } catch(e) {
+        console.error("Не удалось загрузить данные по всем заказам:", e);
+    } finally {
+        hideLoader(); // <--- ДОБАВЛЕНО
+    }
+}
+
+// =================================================================
+// ФУНКЦИИ-ПОМОЩНИКИ
+// =================================================================
+
+function promptToUpdateClientData(client, onSuccessCallback) {
+    const editClientModal = document.getElementById('edit-client-modal');
+    const modalContent = editClientModal.querySelector('.relative');
+
+    alert('Профиль клиента неполный. Пожалуйста, заполните все данные перед выдачей.');
+
+    modalContent.innerHTML = `
+        <h3 class="text-2xl font-bold mb-4">Заполните данные клиента</h3>
+        <form id="force-edit-client-form" class="space-y-4">
+            <div>
+                <label class="block text-sm">ФИО</label>
+                <input type="text" id="force-edit-full_name" value="${client.full_name}" class="mt-1 w-full p-2 border rounded" required>
+            </div>
+            <div>
+                <label class="block text-sm">Телефон</label>
+                <input type="text" id="force-edit-phone" value="${client.phone}" class="mt-1 w-full p-2 border rounded" required>
+            </div>
+            <div class="grid grid-cols-3 gap-2">
+                <div>
+                    <label class="block text-sm">Префикс</label>
+                    <input type="text" id="force-edit-prefix" value="${client.client_code_prefix || 'KB'}" class="mt-1 w-full p-2 border rounded" required>
+                </div>
+                <div class="col-span-2">
+                    <label class="block text-sm">Код клиента</label>
+                    <input type="number" id="force-edit-code" value="${client.client_code_num || ''}" class="mt-1 w-full p-2 border rounded" required>
+                </div>
+            </div>
+            <div class="flex gap-4 mt-6">
+                <button type="button" onclick="document.getElementById('edit-client-modal').classList.remove('is-open')" class="w-full bg-gray-200 py-2 rounded">Отмена</button>
+                <button type="submit" class="w-full bg-green-600 text-white py-2 rounded">Сохранить и продолжить</button>
+            </div>
+        </form>
+    `;
+    editClientModal.classList.add('is-open');
+
+    document.getElementById('force-edit-client-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const data = {
+            full_name: document.getElementById('force-edit-full_name').value,
+            phone: document.getElementById('force-edit-phone').value,
+            client_code_prefix: document.getElementById('force-edit-prefix').value,
+            client_code_num: parseInt(document.getElementById('force-edit-code').value)
+        };
+
+        showLoader(); // <--- ДОБАВЛЕНО
+        try {
+            const r = await fetch(`${API_URL}/clients/${client.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            if (!r.ok) throw new Error(await handleApiError(r));
+
+            alert('Данные клиента обновлены!');
+            editClientModal.classList.remove('is-open');
+
+            await fetchAndRenderClients();
+            await fetchAndRenderIssueList();
+
+            if (onSuccessCallback) {
+                onSuccessCallback();
+            }
+        } catch (err) {
+            alert(`Ошибка: ${err.message}`);
+        } finally {
+            hideLoader(); // <--- ДОБАВЛЕНО
+        }
+    });
+}
+
+function handleHistorySearch(e) {
+    const searchTerm = e.target.value.toLowerCase();
+    document.querySelectorAll('#history-table tbody tr').forEach(row => {
+        const rowContent = row.textContent.toLowerCase();
+        if (rowContent.includes(searchTerm)) {
+            row.style.display = '';
+        } else {
+            row.style.display = 'none';
+        }
+    });
+}
+
+async function handleBulkRevert() {
+    const checked = document.querySelectorAll('.history-checkbox:checked');
+    const orderIds = Array.from(checked).map(cb => parseInt(cb.dataset.orderId));
+
+    if (orderIds.length === 0) {
+        alert('Не выбрано ни одного заказа для возврата.');
+        return;
+    }
+
+    if (confirm(`Вы уверены, что хотите вернуть ${orderIds.length} заказ(ов)?`)) {
+        showLoader(); // <--- ДОБАВЛЕНО
+        try {
+            const response = await fetch(`${API_URL}/orders/bulk_action`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'revert', order_ids: orderIds })
+            });
+            if (!response.ok) throw new Error(await handleApiError(response));
+
+            alert('Выбранные заказы успешно возвращены.');
+            await showIssuedHistory();
+            await fetchAndRenderIssueList();
+        } catch (err) {
+            alert(`Ошибка при массовом возврате: ${err.message}`);
+        } finally {
+            hideLoader(); // <--- ДОБАВЛЕНО
+        }
+    }
+}
+
+// =================================================================
+// ФУНКЦИИ ДИНАМИЧЕСКОГО ПОИСКА ПО ВКЛАДКАМ
+// =================================================================
+
+function handleOrdersSearch(e) {
+    const searchTerm = e.target.value.toLowerCase();
+
+    document.querySelectorAll('#orders-list > div').forEach(group => {
+        const headerContent = group.querySelector('div').textContent.toLowerCase();
+        const orderItems = group.querySelectorAll('ul > li');
+
+        if (headerContent.includes(searchTerm)) {
+            group.classList.remove('hidden');
+            orderItems.forEach(li => li.classList.remove('hidden'));
+            return;
+        }
+
+        let visibleOrdersCount = 0;
+        orderItems.forEach(li => {
+            const trackCodeContent = li.textContent.toLowerCase();
+            if (trackCodeContent.includes(searchTerm)) {
+                li.classList.remove('hidden');
+                visibleOrdersCount++;
+            } else {
+                li.classList.add('hidden');
+            }
+        });
+
+        if (visibleOrdersCount > 0) {
+            group.classList.remove('hidden');
+        } else {
+            group.classList.add('hidden');
+        }
+    });
+}
+
+function handleClientsSearch(e) {
+    const searchTerm = e.target.value.toLowerCase();
+    document.querySelectorAll('#clients-list > div').forEach(clientDiv => {
+        const clientContent = clientDiv.textContent.toLowerCase();
+        if (clientContent.includes(searchTerm)) {
+            clientDiv.classList.remove('hidden');
+        } else {
+            clientDiv.classList.add('hidden');
+        }
+    });
+}
+
+function handleExpensesSearch(e) {
+    const searchTerm = e.target.value.toLowerCase();
+    document.querySelectorAll('#expenses-list > div').forEach(expenseDiv => {
+        const expenseContent = expenseDiv.textContent.toLowerCase();
+        if (expenseContent.includes(searchTerm)) {
+            expenseDiv.classList.remove('hidden');
+        } else {
+            expenseDiv.classList.add('hidden');
+        }
+    });
+}
+
+function handleBuyoutReportSearch(e) {
+    const searchTerm = e.target.value.toLowerCase();
+    let visibleProfit = 0;
+
+    document.querySelectorAll('#buyout-report-content table tbody tr').forEach(row => {
+        const rowContent = row.textContent.toLowerCase();
+        if (rowContent.includes(searchTerm)) {
+            row.style.display = '';
+            const profitCell = row.querySelector('td:last-child');
+            if (profitCell) {
+                visibleProfit += parseFloat(profitCell.textContent) || 0;
+            }
+        } else {
+            row.style.display = 'none';
+        }
+    });
+
+    const totalProfitSpan = document.getElementById('buyout-total-profit');
+    if (totalProfitSpan) {
+        totalProfitSpan.textContent = `${visibleProfit.toFixed(2)} сом`;
+        totalProfitSpan.classList.toggle('text-green-700', visibleProfit >= 0);
+        totalProfitSpan.classList.toggle('text-red-700', visibleProfit < 0);
+    }
+}
+
+// =================================================================
+// МОДУЛЬ: ОТЧЕТ ПО СМЕНЕ
+// =================================================================
+
+function renderShiftReportTab() {
+    const pane = document.getElementById('tab-report');
+    pane.innerHTML = `
+        <div class="bg-white p-6 rounded-lg shadow-md max-w-2xl mx-auto">
+            <div class="flex justify-between items-center mb-4 border-b pb-4">
+                <h2 class="text-2xl font-bold">Отчет по текущей смене</h2>
+                <button id="refresh-report-btn" title="Обновить отчет" class="text-2xl">&circlearrowright;</button>
+            </div>
+            <div id="report-content" class="space-y-3">
+                <p>Загрузка отчета...</p>
+            </div>
+        </div>
+    `;
+    document.getElementById('refresh-report-btn').addEventListener('click', fetchAndRenderShiftReport);
+    fetchAndRenderShiftReport();
+}
+
+async function fetchAndRenderShiftReport() {
+    const contentDiv = document.getElementById('report-content');
+    contentDiv.innerHTML = '<p>Обновление отчета...</p>';
+    showLoader(); // <--- ДОБАВЛЕНО
+
+    try {
+        const response = await fetch(`${API_URL}/shifts/report/current`);
+
+        if (response.status === 404) {
+            contentDiv.innerHTML = '<p class="text-red-500 font-semibold">Активная смена не найдена. Откройте смену, чтобы увидеть отчет.</p>';
+            return;
+        }
+        if (!response.ok) throw new Error(await handleApiError(response));
+
+        const data = await response.json();
+        const report = data.report;
+
+        contentDiv.innerHTML = `
+            <div class="text-sm text-gray-500">
+                <p><strong>Сотрудник:</strong> ${report.employee_name}</p>
+                <p><strong>Смена открыта:</strong> ${new Date(report.shift_start_time).toLocaleString()}</p>
+            </div>
+            <div class="border-t pt-4 mt-4 space-y-2 text-lg">
+                <div class="flex justify-between"><span>Наличные на начало смены:</span> <span class="font-semibold">${report.starting_cash.toFixed(2)} сом</span></div>
+                <div class="flex justify-between text-green-600"><span>Приход наличными (+):</span> <span class="font-semibold">${report.cash_income.toFixed(2)} сом</span></div>
+                <div class="flex justify-between text-blue-600"><span>Приход по карте (+):</span> <span class="font-semibold">${report.card_income.toFixed(2)} сом</span></div>
+                <div class="flex justify-between text-red-600"><span>Расходы (-):</span> <span class="font-semibold">${report.total_expenses.toFixed(2)} сом</span></div>
+                <div class="flex justify-between text-yellow-600"><span>Возвраты (-):</span> <span class="font-semibold">${report.total_returns.toFixed(2)} сом</span></div>
+            </div>
+            <div class="border-t pt-4 mt-4">
+                <div class="flex justify-between text-xl font-bold">
+                    <span>Итого в кассе (расчет):</span>
+                    <span>${report.calculated_cash.toFixed(2)} сом</span>
+                </div>
+            </div>
+        `;
+
+    } catch (e) {
+        contentDiv.innerHTML = `<p class="text-red-500">Ошибка загрузки отчета: ${e.message}</p>`;
+    } finally {
+        hideLoader(); // <--- ДОБАВЛЕНО
+    }
+}
+
+// =================================================================
+// МОДУЛЬ: СВОДНЫЙ ОТЧЕТ
+// =================================================================
+
+function renderSummaryReportTab() {
+    const pane = document.getElementById('tab-summary-report');
+    const today = new Date().toISOString().split('T')[0];
+
+    pane.innerHTML = `
+        <div class="bg-white p-6 rounded-lg shadow-md max-w-3xl mx-auto">
+            <h2 class="text-2xl font-bold mb-4">Сводный отчет</h2>
+            <div class="flex flex-wrap gap-4 items-end p-4 bg-gray-50 rounded-lg mb-4">
+                <div>
+                    <label for="summary-start-date" class="block text-sm font-medium">С</label>
+                    <input type="date" id="summary-start-date" value="${today}" class="mt-1 p-2 border rounded-md">
+                </div>
+                <div>
+                    <label for="summary-end-date" class="block text-sm font-medium">По</label>
+                    <input type="date" id="summary-end-date" value="${today}" class="mt-1 p-2 border rounded-md">
+                </div>
+                <button id="generate-summary-report-btn" class="bg-blue-600 text-white py-2 px-4 rounded-md">Сформировать</button>
+            </div>
+            <div id="summary-report-content">
+                <p class="text-gray-500">Выберите период и нажмите "Сформировать", чтобы получить отчет.</p>
+            </div>
+        </div>
+    `;
+    document.getElementById('generate-summary-report-btn').addEventListener('click', fetchAndRenderSummaryReport);
+}
+
+async function fetchAndRenderSummaryReport() {
+    const contentDiv = document.getElementById('summary-report-content');
+    contentDiv.innerHTML = '<p>Формирование отчета...</p>';
+    const startDate = document.getElementById('summary-start-date').value;
+    const endDate = document.getElementById('summary-end-date').value;
+    showLoader(); // <--- ДОБАВЛЕНО
+
+    try {
+        const response = await fetch(`${API_URL}/reports/summary?start_date=${startDate}&end_date=${endDate}`);
+        if (!response.ok) throw new Error(await handleApiError(response));
+        const data = await response.json();
+        const summary = data.summary;
+
+        let expensesHtml = Object.entries(summary.expenses_by_type)
+            .map(([type, amount]) => `<div class="flex justify-between text-sm text-gray-700 ml-4"><span>- ${type}:</span><span>${amount.toFixed(2)} сом</span></div>`)
+            .join('');
+        if (!expensesHtml) {
+            expensesHtml = '<p class="text-sm text-gray-500 ml-4">Расходов за период нет.</p>';
+        }
+
+        let shiftsHtml = '<h3 class="text-xl font-bold mt-6 mb-2">Смены за период</h3>';
+        if (!summary.shifts || summary.shifts.length === 0) {
+            shiftsHtml += '<p class="text-gray-500">Смен за этот период не найдено.</p>';
+        } else {
+            shiftsHtml += summary.shifts.map(shift => `
+                <div class="p-2 border rounded-md hover:bg-gray-50 flex justify-between items-center">
+                    <div>
+                        <p><strong>${shift.employee.full_name}</strong></p>
+                        <p class="text-sm text-gray-500">${new Date(shift.start_time).toLocaleString()} - ${shift.end_time ? new Date(shift.end_time).toLocaleString() : 'АКТИВНА'}</p>
+                    </div>
+                    <button class="view-shift-report-btn bg-blue-100 text-blue-800 text-sm px-3 py-1 rounded-full" data-shift-id="${shift.id}">Подробнее</button>
+                </div>
+            `).join('');
+        }
+
+        contentDiv.innerHTML = `
+            <div class="border-t pt-4 mt-4 space-y-3 text-lg">
+                <div class="flex justify-between text-green-600"><span>Общая выручка (+):</span><span class="font-bold">${summary.total_income.toFixed(2)} сом</span></div>
+                <div class="flex justify-between text-sm text-gray-700 ml-4"><span>(Наличными):</span><span>${summary.total_cash_income.toFixed(2)} сом</span></div>
+                <div class="flex justify-between text-sm text-gray-700 ml-4"><span>(Картой):</span><span>${summary.total_card_income.toFixed(2)} сом</span></div>
+                <div class="flex justify-between text-red-600 mt-4"><span>Общие расходы (-):</span><span class="font-bold">${summary.total_expenses.toFixed(2)} сом</span></div>
+                ${expensesHtml}
+            </div>
+            <div class="border-t pt-4 mt-6">
+                <div class="flex justify-between text-2xl font-bold ${summary.net_profit >= 0 ? 'text-green-700' : 'text-red-700'}">
+                    <span>Чистая прибыль:</span><span>${summary.net_profit.toFixed(2)} сом</span>
+                </div>
+            </div>
+            ${shiftsHtml}
+        `;
+
+        document.querySelectorAll('.view-shift-report-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const shiftId = e.target.dataset.shiftId;
+                showPastShiftReportModal(shiftId);
+            });
+        });
+    } catch (e) {
+        contentDiv.innerHTML = `<p class="text-red-500">Ошибка загрузки отчета: ${e.message}</p>`;
+    } finally {
+        hideLoader(); // <--- ДОБАВЛЕНО
+    }
+}
+
+async function showPastShiftReportModal(shiftId) {
+    const modal = document.getElementById('shift-report-modal');
+    const contentDiv = modal.querySelector('.relative');
+    contentDiv.innerHTML = '<p>Загрузка отчета по смене...</p>';
+    modal.classList.add('is-open');
+    showLoader(); // <--- ДОБАВЛЕНО
+
+    try {
+        const response = await fetch(`${API_URL}/shifts/report/${shiftId}`);
+        if (!response.ok) throw new Error(await handleApiError(response));
+        const data = await response.json();
+        const report = data.report;
+
+        contentDiv.innerHTML = `
+            <div class="flex justify-between items-start">
+                <h3 class="text-2xl font-bold mb-4">Отчет по смене №${report.shift_id}</h3>
+                <button onclick="document.getElementById('shift-report-modal').classList.remove('is-open')" class="text-2xl font-bold">&times;</button>
+            </div>
+            <div class="text-sm text-gray-500">
+                <p><strong>Сотрудник:</strong> ${report.employee_name}</p>
+                <p><strong>Период:</strong> ${new Date(report.shift_start_time).toLocaleString()} - ${report.shift_end_time ? new Date(report.shift_end_time).toLocaleString() : 'АКТИВНА'}</p>
+            </div>
+            <div class="border-t pt-4 mt-4 space-y-2 text-lg">
+                <div class="flex justify-between"><span>Наличные на начало:</span> <span class="font-semibold">${report.starting_cash.toFixed(2)} сом</span></div>
+                <div class="flex justify-between text-green-600"><span>Приход наличными (+):</span> <span class="font-semibold">${report.cash_income.toFixed(2)} сом</span></div>
+                <div class="flex justify-between text-red-600"><span>Расходы (-):</span> <span class="font-semibold">${report.total_expenses.toFixed(2)} сом</span></div>
+                <div class="flex justify-between text-yellow-600"><span>Возвраты (-):</span> <span class="font-semibold">${report.total_returns.toFixed(2)} сом</span></div>
+            </div>
+            <div class="border-t pt-4 mt-4 space-y-2">
+                <div class="flex justify-between text-xl font-bold"><span>Итого в кассе (расчет):</span><span>${report.calculated_cash.toFixed(2)} сом</span></div>
+                <div class="flex justify-between text-lg"><span>В кассе по факту:</span><span class="font-semibold">${report.actual_closing_cash?.toFixed(2) || 'Смена не закрыта'} сом</span></div>
+            </div>
+        `;
+    } catch (e) {
+        contentDiv.innerHTML = `<p class="text-red-500">Ошибка: ${e.message}</p>`;
+    } finally {
+        hideLoader(); // <--- ДОБАВЛЕНО
+    }
+}
+
+// =================================================================
+// МОДУЛЬ: ОТЧЕТ ПО ВЫКУПУ
+// =================================================================
+
+function renderBuyoutReportTab() {
+    const pane = document.getElementById('tab-buyout-report');
+    const today = new Date().toISOString().split('T')[0];
+
+    pane.innerHTML = `
+        <div class="bg-white p-6 rounded-lg shadow-md">
+            <h2 class="text-2xl font-bold mb-4">Отчет по выкупам и курсовой разнице</h2>
+            <div class="flex flex-wrap gap-4 items-end p-4 bg-gray-50 rounded-lg mb-4">
+                <div>
+                    <label for="buyout-start-date" class="block text-sm font-medium">С</label>
+                    <input type="date" id="buyout-start-date" value="${today}" class="mt-1 p-2 border rounded-md">
+                </div>
+                <div>
+                    <label for="buyout-end-date" class="block text-sm font-medium">По</label>
+                    <input type="date" id="buyout-end-date" value="${today}" class="mt-1 p-2 border rounded-md">
+                </div>
+                <button id="generate-buyout-report-btn" class="bg-blue-600 text-white py-2 px-4 rounded-md">Сформировать</button>
+            </div>
+            <div class="mb-4">
+                <input type="search" id="buyout-report-search-input" placeholder="🔍 Поиск по клиенту, трек-коду..." class="w-full p-2 border rounded-lg">
+            </div>
+            <div id="buyout-report-content" class="overflow-x-auto">
+                <p class="text-gray-500">Выберите период и нажмите "Сформировать".</p>
+            </div>
+        </div>
+    `;
+    document.getElementById('generate-buyout-report-btn').addEventListener('click', fetchAndRenderBuyoutReport);
+    document.getElementById('buyout-report-search-input').addEventListener('input', handleBuyoutReportSearch);
+}
+
+async function fetchAndRenderBuyoutReport() {
+    const contentDiv = document.getElementById('buyout-report-content');
+    contentDiv.innerHTML = '<p>Формирование отчета...</p>';
+    const startDate = document.getElementById('buyout-start-date').value;
+    const endDate = document.getElementById('buyout-end-date').value;
+    showLoader(); // <--- ДОБАВЛЕНО
+
+    try {
+        const response = await fetch(`${API_URL}/reports/buyout?start_date=${startDate}&end_date=${endDate}`);
+        if (!response.ok) throw new Error(await handleApiError(response));
+        const data = await response.json();
+        const { items, total_profit } = data.report;
+
+        if (items.length === 0) {
+            contentDiv.innerHTML = '<p class="text-gray-500">Заказов на выкуп за выбранный период нет.</p>';
+            return;
+        }
+
+        const rowsHtml = items.map(item => `
+            <tr class="border-b text-sm hover:bg-gray-50">
+                <td class="p-2">${new Date(item.created_at).toLocaleDateString()}</td>
+                <td class="p-2">${item.client_name}</td>
+                <td class="p-2">${item.track_code}</td>
+                <td class="p-2">${item.item_cost_cny?.toFixed(2) || '-'}</td>
+                <td class="p-2">${item.rate_for_client?.toFixed(2) || '-'}</td>
+                <td class="p-2 font-semibold">${item.price_for_client?.toFixed(2) || '-'}</td>
+                <td class="p-2">${item.actual_rate?.toFixed(2) || 'Не указан'}</td>
+                <td class="p-2">${item.actual_cost?.toFixed(2) || '-'}</td>
+                <td class="p-2 font-bold ${item.profit >= 0 ? 'text-green-600' : 'text-red-600'}">${item.profit?.toFixed(2) || '0.00'}</td>
+            </tr>
+        `).join('');
+
+        contentDiv.innerHTML = `
+            <table class="w-full min-w-[900px]">
+                <thead class="bg-gray-100">
+                    <tr class="text-left text-xs font-bold uppercase">
+                        <th class="p-2">Дата</th>
+                        <th class="p-2">Клиент</th>
+                        <th class="p-2">Трек</th>
+                        <th class="p-2">Цена(CNY)</th>
+                        <th class="p-2">Курс(клиент)</th>
+                        <th class="p-2">Цена(клиент)</th>
+                        <th class="p-2">Реал. курс</th>
+                        <th class="p-2">Себестоимость</th>
+                        <th class="p-2">Прибыль</th>
+                    </tr>
+                </thead>
+                <tbody>${rowsHtml}</tbody>
+            </table>
+            <div class="mt-4 text-right">
+                <span class="text-lg font-bold">Итоговая прибыль от курсовой разницы:</span>
+                <span id="buyout-total-profit" class="text-xl font-bold ${total_profit >= 0 ? 'text-green-700' : 'text-red-700'}">${total_profit.toFixed(2)} сом</span>
+            </div>
+        `;
+    } catch (e) {
+        contentDiv.innerHTML = `<p class="text-red-500">Ошибка загрузки отчета: ${e.message}</p>`;
+    } finally {
+        hideLoader(); // <--- ДОБАВЛЕНО
+    }
+}
+
+</script>
+</body>
+</html>
