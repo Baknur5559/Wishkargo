@@ -1,0 +1,78 @@
+[Sat Nov 15 03:00:01 UTC 2025] --- Начало скрипта бэкапа ---
+[+] Данные .env успешно загружены (Хост: localhost)
+[+] Временная папка проверена: /home/baknur_user/cargo-crm-backups
+[+] Создание 'слепка' базы данных: cargo_crm_FULL_2025-11-15_0300.sql.dump...
+pg_dump: last built-in OID is 16383
+pg_dump: reading extensions
+pg_dump: identifying extension members
+pg_dump: reading schemas
+pg_dump: reading user-defined tables
+pg_dump: reading user-defined functions
+pg_dump: reading user-defined types
+pg_dump: reading procedural languages
+pg_dump: reading user-defined aggregate functions
+pg_dump: reading user-defined operators
+pg_dump: reading user-defined access methods
+pg_dump: reading user-defined operator classes
+pg_dump: reading user-defined operator families
+pg_dump: reading user-defined text search parsers
+pg_dump: reading user-defined text search templates
+pg_dump: reading user-defined text search dictionaries
+pg_dump: reading user-defined text search configurations
+pg_dump: reading user-defined foreign-data wrappers
+pg_dump: reading user-defined foreign servers
+pg_dump: reading default privileges
+pg_dump: reading user-defined collations
+pg_dump: reading user-defined conversions
+pg_dump: reading type casts
+pg_dump: reading transforms
+pg_dump: reading table inheritance information
+pg_dump: reading event triggers
+pg_dump: finding extension tables
+pg_dump: finding inheritance relationships
+pg_dump: reading column info for interesting tables
+pg_dump: finding table default expressions
+pg_dump: flagging inherited columns in subtables
+pg_dump: reading partitioning data
+pg_dump: reading indexes
+pg_dump: flagging indexes in partitioned tables
+pg_dump: reading extended statistics
+pg_dump: reading constraints
+pg_dump: reading triggers
+pg_dump: reading rewrite rules
+pg_dump: reading policies
+pg_dump: reading row-level security policies
+pg_dump: reading publications
+pg_dump: reading publication membership of tables
+pg_dump: reading publication membership of schemas
+pg_dump: reading subscriptions
+pg_dump: reading large objects
+pg_dump: reading dependency data
+pg_dump: saving encoding = UTF8
+pg_dump: saving standard_conforming_strings = on
+pg_dump: saving search_path = 
+pg_dump: saving database definition
+pg_dump: dumping contents of table "public.alembic_version"
+pg_dump: dumping contents of table "public.broadcast_reactions"
+pg_dump: dumping contents of table "public.broadcasts"
+pg_dump: dumping contents of table "public.clients"
+pg_dump: dumping contents of table "public.companies"
+pg_dump: dumping contents of table "public.employees"
+pg_dump: dumping contents of table "public.expense_types"
+pg_dump: dumping contents of table "public.expenses"
+pg_dump: dumping contents of table "public.locations"
+pg_dump: dumping contents of table "public.order_history"
+pg_dump: dumping contents of table "public.orders"
+pg_dump: dumping contents of table "public.permissions"
+pg_dump: dumping contents of table "public.role_permissions"
+pg_dump: dumping contents of table "public.roles"
+pg_dump: dumping contents of table "public.settings"
+pg_dump: dumping contents of table "public.shifts"
+[+] 'Слепок' успешно создан.
+[+] Загрузка cargo_crm_FULL_2025-11-15_0300.sql.dump в Google Drive (Cargo_CRM_Backups/2025-11)...
+[+] Загрузка завершена.
+[+] Удаление старых бэкапов (старше 7 дней) с Google Drive...
+[+] Ротация завершена.
+[+] Очистка временных файлов на сервере...
+[+] Очистка завершена.
+[Sat Nov 15 03:00:08 UTC 2025] --- Скрипт бэкапа успешно завершен ---

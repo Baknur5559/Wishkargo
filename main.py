@@ -5366,6 +5366,38 @@ async def notify_owners(company_id: int, message_text: str):
         db.close()
 # === КОНЕЦ УНИВЕРСАЛЬНОЙ ФУНКЦИИ ===
 
+async def notify_owner_of_complaint(company_id: int, client_id: int, message_text: str):
+    """
+    (ФОНОВАЯ ЗАДАЧA) Отправляет уведомление о жалобе Владельцу.
+    САМА СОЗДАЕТ СЕССИЮ.
+    """
+    db = SessionLocal()
+    try:
+        # 1. Получаем данные клиента
+        client = db.query(Client).filter(Client.id == client_id).first()
+        if not client:
+             logger.warning(f"[Complaint] Клиент ID {client_id} не найден.")
+             return
+        
+        # 2. Форматируем сообщение
+        client_code = f"{client.client_code_prefix}{client.client_code_num}"
+        message = (
+            f"🚨 <b>НОВОЕ ОБРАЩЕНИЕ / ЖАЛОБА</b>\n\n"
+            f"<b>КТО:</b> {client.full_name} ({client_code})\n"
+            f"<b>КОНТАКТ:</b> <code>{client.phone}</code>\n"
+            f"<b>СООБЩЕНИЕ КЛИЕНТА:</b>\n"
+            f"<i>{message_text}</i>\n\n"
+            f"👉 <i>Система ждет вашего ответа.</i>"
+        )
+        
+        # 3. Вызываем универсальную функцию, чтобы разослать всем Владельцам
+        await notify_owners(company_id=company_id, message_text=message)
+        
+    except Exception as e:
+        logger.error(f"!!! [Complaint] Ошибка: {e}", exc_info=True)
+    finally:
+        db.close()
+
 @app.on_event("startup")
 def on_startup():
     """Создает все таблицы при запуске, если их нет."""

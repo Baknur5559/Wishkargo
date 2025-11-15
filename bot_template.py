@@ -740,7 +740,7 @@ async def save_order_from_bot(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    ВЕРСИЯ 6.0: Длинная Память + Бесконечный статус "Печатает".
+    ВЕРСИЯ 6.0: Полный Контекст (Время, Профиль, Заказы, Инструменты) и Детекция Жалоб.
     """
     user = update.effective_user
     text = update.message.text
@@ -753,7 +753,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("Пожалуйста, нажмите /start.", reply_markup=ReplyKeyboardRemove())
         return
 
-    # --- Обработка меню (остается без изменений) ---
+    # --- Кнопки меню (остается без изменений) ---
     if text == "👤 Мой профиль": await profile(update, context); return
     elif text == "🇨🇳 Адреса складов": await china_addresses(update, context); return
     elif text == "🇰🇬 Наши контакты": await bishkek_contacts(update, context); return
@@ -772,75 +772,134 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         typing_job = context.job_queue.run_repeating(keep_typing, interval=4, first=0, chat_id=chat_id)
         
         try:
-            # 2. Сбор данных (Досье) - КОРОТКАЯ ВЕРСИЯ
-            client_summary = "Данные недоступны."
-            try:
-                # Получаем профиль
-                client_data = await api_request("GET", f"/api/clients/{client_id}", params={"company_id": COMPANY_ID_FOR_BOT})
-                profile_str = f"ФИО: {client_data.get('full_name')}, Код: {client_data.get('client_code_prefix')}{client_data.get('client_code_num')}"
-                
-                # Получаем заказы
-                orders_resp = await api_request("GET", "/api/orders", params={"client_id": client_id, "company_id": COMPANY_ID_FOR_BOT})
-                orders_count = len(orders_resp) if orders_resp else 0
-                client_summary = f"{profile_str}\nВсего заказов: {orders_count}"
-            except: pass
+            # 2. ОПРЕДЕЛЯЕМ ВРЕМЯ (Бишкек UTC+6)
+            now_utc = datetime.now(timezone.utc)
+            now_bishkek = now_utc + timedelta(hours=6)
+            current_date_str = now_bishkek.strftime("%Y-%m-%d") # <-- ТЕКУЩАЯ ДАТА
+            current_time_str = now_bishkek.strftime("%H:%M")
+            
+            # 3. ЛОГИКА ПРИВЕТСТВИЯ (12 часов)
+            last_greeted = context.user_data.get('last_greeted')
+            should_greet = False
+            if not last_greeted or (now_utc - last_greeted).total_seconds() > 12 * 3600:
+                should_greet = True
+                context.user_data['last_greeted'] = now_utc # Обновляем время
+            
+            greeting_rule = ""
+            if should_greet:
+                hour = now_bishkek.hour
+                if 5 <= hour < 12: greet_text = "Кутман таң / Доброе утро"
+                elif 12 <= hour < 18: greet_text = "Кутман күн / Добрый день"
+                elif 18 <= hour < 23: greet_text = "Кутман кеч / Добрый вечер"
+                else: greet_text = "Салам / Здравствуйте"
+                greeting_rule = f"👋 ЭТО ПЕРВОЕ СООБЩЕНИЕ ЗА ДЕНЬ. Обязательно поздоровайся ({greet_text})."
+            else:
+                greeting_rule = "🚫 НЕ ЗДОРОВАЙСЯ! Мы уже общались недавно. Сразу отвечай на вопрос."
 
-            # 3. РАБОТА С ПАМЯТЬЮ
+
+            # 4. ЗАГРУЗКА ДАННЫХ (Профиль + Заказы)
+            client_profile_str = "Профиль: Ошибка загрузки."
+            orders_str = "Заказы: Ошибка загрузки."
+            
+            try:
+                # А. Получаем профиль клиента (КЛЮЧЕВОЙ МОМЕНТ)
+                client_data = await api_request("GET", f"/api/clients/{client_id}", params={"company_id": COMPANY_ID_FOR_BOT})
+                if client_data and "id" in client_data:
+                    code_full = f"{client_data.get('client_code_prefix', 'KB')}{client_data.get('client_code_num', 'None')}"
+                    client_profile_str = (
+                        f"ФИО: {client_data.get('full_name')}\n"
+                        f"КОД КЛИЕНТА: {code_full}\n"
+                        f"ТЕЛЕФОН: {client_data.get('phone')}\n"
+                        f"Роль: {'ВЛАДЕЛЕЦ' if is_owner else 'Клиент'}"
+                    )
+                
+                # Б. Получаем заказы (Игнорируя 'выданные')
+                orders_resp = await api_request("GET", "/api/orders", params={"client_id": client_id, "company_id": COMPANY_ID_FOR_BOT})
+                if orders_resp and isinstance(orders_resp, list):
+                    active = [o for o in orders_resp if o.get('status') != "Выдан"]
+                    # ... (логика формирования списка заказов)
+                    lines = [f"- {o['track_code']} | {o['status']}" + (f" | {o['comment']}" if o.get('comment') else "") for o in active]
+                    total_debt = 0
+                    for o in active:
+                        if o.get('status') == "Готов к выдаче":
+                            cost = o.get('calculated_final_cost_som') or o.get('final_cost_som') or 0
+                            total_debt += cost
+
+                    orders_str = (
+                        f"Всего заказов в базе: {len(orders_resp)}\n"
+                        f"Активных (в работе): {len(active)}\n"
+                        f"Долг к оплате: {int(total_debt)} сом\n"
+                    )
+                    if active:
+                        if len(lines) > 15:
+                             orders_str += "Последние 15 активных заказов:\n" + "\n".join(lines[:15]) + "\n...(и другие)"
+                        else:
+                             orders_str += "Список активных:\n" + "\n".join(lines)
+                    else:
+                        orders_str += "Нет активных заказов."
+            except Exception as e:
+                logger.error(f"Ошибка сбора контекста: {e}")
+
+            # 5. РАБОТА С ПАМЯТЬЮ (Память клиента/владельца)
             history = context.user_data.get('dialog_history', [])
             # Добавляем текущий вопрос пользователя
             history.append({"role": "user", "content": text})
-            
-            # Ограничиваем историю (последние 10 сообщений = 5 пар вопрос-ответ)
-            if len(history) > 10:
-                history = history[-10:]
+            # Ограничиваем историю (последние 10 сообщений)
+            if len(history) > 10: history = history[-10:]
 
-            # 4. СИСТЕМНЫЙ ПРОМПТ
+            # 6. СИСТЕМНЫЙ ПРОМПТ (Мозг)
             system_role = (
-                f"Ты — умный помощник карго '{COMPANY_NAME_FOR_BOT}'.\n"
-                f"--- ДОСЬЕ КЛИЕНТА ---\n{client_summary}\n\n"
-                "ТВОЯ ЗАДАЧА:\n"
-                "1. Помни контекст беседы (см. историю сообщений).\n"
-                "2. Если дата неполная ('14-го'), ищи в истории год или считай текущий (2025).\n"
-                "3. Если спрашивают 'смени код', спроси 'на какой?' и запомни ответ.\n"
-                "4. Отвечай кратко."
+                f"СЕГОДНЯШНЯЯ ДАТА: {current_date_str} (Время: {current_time_str}).\n"
+                f"Ты — умный помощник карго '{COMPANY_NAME_FOR_BOT}'.\n\n"
+                f"--- 👤 ДОСЬЕ СОБЕСЕДНИКА ---\n{client_profile_str}\n\n"
+                f"--- 📦 ЕГО ЗАКАЗЫ ---\n{orders_str}\n\n"
+                "--- ⚡️ ТВОЯ ЗАДАЧА ---\n"
+                "1. **ЯЗЫК**: Отвечай СТРОГО на том языке, на котором написал клиент (Русский или Кыргызский). Это главное правило.\n"
+                f"2. **ПРИВЕТСТВИЕ**: {greeting_rule}\n"
+                "3. **ДИАЛОГ**: Помни контекст беседы (см. историю сообщений).\n"
+                "4. **СКОРОСТЬ**: ПИШИ КОРОТКО. Никаких 'По моим данным' или 'Согласно системе'. Сразу говори факт.\n"
+                "5. **КОМПЛАЙНС (ЖАЛОБЫ)**: Если в тексте клиента есть сильный негатив, ругательства, угроза уйти, или прямое требование 'позвать менеджера' — добавь в свой ответ на самом конце СЕКРЕТНЫЙ ТЕГ: [ALARM]. Клиент его не увидит, но он нужен для эскалации.\n"
             )
+
+            # Если это Владелец -> Добавляем инструменты управления
             if is_owner:
                 system_role += f"\n\n{TOOLS_SYSTEM_PROMPT}"
 
-            # 5. ЗАПРОС К ИИ (Передаем всю историю!)
+            # 7. Запрос к ИИ
             ai_answer = await get_ai_response(history, system_role)
 
-            # Сохраняем ответ бота в историю
+            # Сохраняем ответ бота в историю (чистый текст)
             history.append({"role": "assistant", "content": ai_answer})
             context.user_data['dialog_history'] = history
-
-            # 6. Обработка команд Владельца (JSON)
-            # ВАЖНО: Улучшенный парсер для удаления ```json ```
+            
+            # --- 8. ДЕТЕКТОР ЖАЛОБ (Поиск тега [ALARM]) ---
+            is_complaint = False
+            if "[ALARM]" in ai_answer.upper():
+                ai_answer = ai_answer.replace("[ALARM]", "").strip() # Удаляем тег из ответа
+                is_complaint = True
+            
+            # --- 9. Обработка команд Владельца (JSON) ---
             if is_owner and ("tool" in ai_answer or "confirm_action" in ai_answer):
+                # ... (Тот же код обработки JSON, что мы давали в прошлом ответе) ...
                 try:
-                    # 1. Очищаем от Markdown (```json ... ```)
+                    # Улучшенный парсер для удаления ```json ```
                     clean_answer = ai_answer.replace("```json", "").replace("```", "").strip()
-                    
-                    # 2. Ищем границы JSON объекта {...}
                     json_start = clean_answer.find('{')
                     json_end = clean_answer.rfind('}')
                     
                     if json_start != -1 and json_end != -1:
                         json_str = clean_answer[json_start:json_end+1]
-                        
-                        # 3. Пытаемся распарсить
                         command = json.loads(json_str)
                         
                         if "tool" in command:
                             await update.message.reply_text(f"⚙️ Выполняю: `{command['tool']}`...", parse_mode=ParseMode.MARKDOWN)
                             
-                            # Передаем employee_id для прав доступа!
                             employee_id = context.user_data.get('employee_id')
+                            # ВАЖНО: employee_id должен быть Integer
                             tool_result = await execute_ai_tool(command, api_request, COMPANY_ID_FOR_BOT, employee_id)
                             
-                            # Проверка на кнопки подтверждения
+                            # Проверка на кнопки подтверждения (confirm_action)
                             try:
-                                # Пытаемся понять, вернул ли инструмент JSON-подтверждение
                                 if tool_result.strip().startswith("{"):
                                     confirm_data = json.loads(tool_result)
                                     if "confirm_action" in confirm_data:
@@ -852,30 +911,27 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                                         await update.message.reply_text(confirm_data['message'], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
                                         return
                                 
-                                # Если это не JSON-подтверждение, а просто текст (отчет, поиск)
                                 await update.message.reply_text(tool_result, parse_mode=ParseMode.MARKDOWN)
                                 return
-
                             except json.JSONDecodeError:
-                                # Если tool_result - это просто текст
                                 await update.message.reply_text(tool_result, parse_mode=ParseMode.MARKDOWN)
                                 return
                 except Exception as e:
                     logger.error(f"JSON Error: {e}")
-
-            # Если не команда -> просто отправляем текст ответа ИИ
+            
+            # 10. Отправка ответа (Обычный текст)
             await update.message.reply_text(ai_answer, reply_markup=markup)
 
+            # 11. ФОНОВАЯ ЗАДАЧА: Отправка жалобы Владельцу
+            if is_complaint:
+                 await notify_owner_of_complaint(COMPANY_ID_FOR_BOT, client_id, text) # text - это исходное сообщение клиента
+
         finally:
-            # ОБЯЗАТЕЛЬНО ОСТАНАВЛИВАЕМ СТАТУС "ПЕЧАТАЕТ"
+            # 12. ОБЯЗАТЕЛЬНО ОСТАНАВЛИВАЕМ СТАТУС "ПЕЧАТАЕТ"
             if typing_job:
                 typing_job.schedule_removal()
         
         return
-
-    # Если ИИ выключен
-    logger.warning(f"Неизвестная команда: '{text}'")
-    await update.message.reply_text("Неизвестная команда.", reply_markup=markup)
 # --- 8. Функции меню (ПЕРЕПИСАНЫ НА API) ---
 
 async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
