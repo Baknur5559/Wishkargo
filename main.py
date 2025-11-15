@@ -587,7 +587,7 @@ def delete_client(client_id: int, db: Session = Depends(get_db)):
     db.query(Order).filter(Order.client_id == client_id).delete(); db.delete(client); db.commit()
     return {"status": "ok", "message": "Клиент и его история заказов удалены."}
 
-@app.post("/clients/{client_id}/generate_lk_link", tags=["Клиенты"])
+@app.post("api/clients/{client_id}/generate_lk_link", tags=["Клиенты"])
 def generate_lk_link(client_id: int, db: Session = Depends(get_db)):
     client = db.query(Client).filter(Client.id == client_id).first()
     if not client:
